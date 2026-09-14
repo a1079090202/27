@@ -46,7 +46,7 @@
       </tr>
       <% if (order.status === 'delivered') { %>
       <tr>
-        <td colspan="4" class="num">新收押金（<%= order.deposit_qty %> 个押金桶抵扣后）</td>
+        <td colspan="4" class="num">新收押金（<%= order.receipt.new_deposit_qty %> 个新押金桶）</td>
         <td class="num">¥<%= yuan(order.deposit_amount) %></td>
       </tr>
       <tr>
@@ -57,6 +57,14 @@
           <b class="<%= order.total_amount-order.paid_amount>0?'':'muted' %>" style="color:<%= order.total_amount-order.paid_amount>0?'#92400e':'' %>">¥<%= yuan(order.total_amount-order.paid_amount) %></b>
         </td>
       </tr>
+      <% if (order.total_amount - order.paid_amount > 0) {
+           const depUnpaid = Math.max(order.deposit_amount - order.paid_amount, 0);
+           const waterUnpaid = (order.total_amount - order.paid_amount) - depUnpaid; %>
+      <tr>
+        <td colspan="4" class="num muted">未收拆分（押金优先冲抵）</td>
+        <td class="num muted">欠水款 ¥<%= yuan(waterUnpaid) %><% if (depUnpaid > 0) { %> · <span style="color:var(--red)">欠押金 ¥<%= yuan(depUnpaid) %></span><% } %></td>
+      </tr>
+      <% } %>
       <% } %>
     </table>
   </div>
@@ -97,6 +105,7 @@
           <div>
             <label>本次收现（元，默认全额）</label>
             <input name="cash_collected" type="number" min="0" step="0.01" placeholder="留空=全额收清">
+            <small class="muted">水款不足可挂账；新押金必须足额，少于押金将被拒。</small>
           </div>
         </div>
         <div style="margin-top:10px">
@@ -121,13 +130,50 @@
       <% } %>
       <table>
         <tr><th>实送桶数</th><td class="num"><%= order.receipt.delivered_qty %></td></tr>
-        <tr><th>收回空桶</th><td class="num"><%= order.receipt.empty_returned %></td></tr>
+        <tr>
+          <th>押金桶结算</th>
+          <td class="num">
+            账上抵扣 <b><%= order.receipt.cover_balance_qty %></b>
+            · 空桶抵扣 <b><%= order.receipt.empty_cover_qty %></b>
+            · 新押 <b><%= order.receipt.new_deposit_qty %></b>
+          </td>
+        </tr>
+        <tr>
+          <th>收回空桶</th>
+          <td class="num">
+            <%= order.receipt.empty_returned %>
+            <% if (order.receipt.empty_returned - order.receipt.empty_cover_qty > 0) { %>
+              <span class="muted">（其中 <%= order.receipt.empty_returned - order.receipt.empty_cover_qty %> 个不抵扣押金）</span>
+            <% } %>
+          </td>
+        </tr>
         <tr><th>新押金桶</th><td class="num"><%= order.receipt.new_deposit_qty %> 个 · ¥<%= yuan(order.receipt.deposit_amount) %></td></tr>
         <tr><th>本次收现</th><td class="num">¥<%= yuan(order.receipt.cash_collected) %></td></tr>
         <tr><th>送达时间</th><td class="mono"><%= order.receipt.delivered_at %></td></tr>
         <tr><th>录回执人</th><td><%= order.receipt.created_by %></td></tr>
         <% if (order.receipt.remark) { %><tr><th>备注</th><td><%= order.receipt.remark %></td></tr><% } %>
       </table>
+
+      <% if (offsetTrace && offsetTrace.length) { %>
+        <h2 style="margin-top:14px">账上押金桶抵扣溯源（担保置换，未退款）</h2>
+        <table>
+          <tr><th>抵扣桶数</th><th>钉到的历史收款</th></tr>
+          <% offsetTrace.forEach(o => { %>
+            <% o.allocations.forEach(a => { %>
+              <tr>
+                <td class="num"><%= a.qty %></td>
+                <td class="alloc">
+                  <%= a.collect_at.slice(0,10) %> 收据「<%= a.collect_ref_no || '无号' %>」
+                  当初 @¥<%= yuan(a.unit_amount) %>/桶 收的
+                  <% if (a.source_type === 'migration') { %><span class="badge cancelled">历史补底</span><% } %>
+                </td>
+              </tr>
+            <% }) %>
+          <% }) %>
+        </table>
+        <p class="muted" style="font-size:12px">旧押金的担保从旧桶转到本次新桶，押金未退、可退余额不变；落地在押金抵扣台账，禁止修改/删除。</p>
+      <% } %>
+
       <p class="muted" style="font-size:12px;margin-top:8px">回执不可重复录入、不可修改；如送错楼栋请在此页留痕后线下处置。</p>
     <% } %>
 

@@ -4,9 +4,13 @@ const receiptModel = require('../models/receiptModel');
 const customerModel = require('../models/customerModel');
 const driverModel = require('../models/driverModel');
 const productModel = require('../models/productModel');
+const bucketModel = require('../models/bucketModel');
+const depositModel = require('../models/depositModel');
 const depositService = require('./depositService');
 const { logAction } = require('../models/logModel');
-const { BusinessError, DuplicateReceiptError } = require('./errors');
+const { BusinessError, DuplicateReceiptError, NotFoundError } = require('./errors');
+const { fenToYuan } = require('../utils/money');
+const closeService = require('./closeService');
 
 const orderService = {
   /**
@@ -80,7 +84,7 @@ const orderService = {
   dispatch({ orderId, driverId, operator }) {
     if (!operator) throw new BusinessError('缺少操作人');
     const order = orderModel.getById(orderId);
-    if (!order) throw new BusinessError('订单不存在');
+    if (!order) throw new NotFoundError('订单不存在');
     const driver = driverModel.getById(driverId);
     if (!driver || !driver.active) throw new BusinessError('师傅不存在或已停用');
     if (order.status !== 'placed') throw new BusinessError(`当前状态 ${order.status}，不能分派`);
@@ -103,7 +107,7 @@ const orderService = {
   // 已分派的单改派给别的师傅（留痕）
   reassign({ orderId, driverId, operator }) {
     const order = orderModel.getById(orderId);
-    if (!order) throw new BusinessError('订单不存在');
+    if (!order) throw new NotFoundError('订单不存在');
     if (order.status !== 'dispatched') throw new BusinessError('只有已分派未送达的单能改派');
     const driver = driverModel.getById(driverId);
     if (!driver || !driver.active) throw new BusinessError('师傅不存在');
@@ -139,7 +143,10 @@ const orderService = {
     const db = getDb();
     return db.transaction(() => {
       const order = orderModel.getById(orderId);
-      if (!order) throw new BusinessError('订单不存在');
+      if (!order) throw new NotFoundError('订单不存在');
+
+      // —— 封账时间闸：回执业务日期不得落入已封账区间 ——
+      closeService.assertBusinessDateOpen(deliveredAt.slice(0, 10), '回执');
 
       // —— 幂等闸门：任何写入之前先查 ——
       const existing = receiptModel.getByOrderId(orderId);
@@ -153,19 +160,37 @@ const orderService = {
         .map((i) => ({ unitAmount: i.deposit_per_bucket, qty: i.qty }));
       const totalDepositQty = depositLines.reduce((s, l) => s + l.qty, 0);
 
-      // ① 账上已有押金桶（之前送水押在站里的）② 本次收回空桶，依次抵扣
+      // 押金桶去向三段：① 账上已有押金桶的「可置换直接池」（担保置换）② 当场交回空桶 ③ 剩余才收新押金。
+      // 不能用押金净余额：经置换在保的桶仍在净余额里，但直接池已用完，再置换就是同一笔押金重复支取。
       const preBalance = depositService.getBalance(order.customer_id);
-      let coverAvailable = preBalance.qty + emptyReturned;
+      const directPool = depositModel.totalDirectPool(order.customer_id);
+      const coverBalanceQty = Math.min(totalDepositQty, directPool);
+      const coverEmptyQty = Math.min(totalDepositQty - coverBalanceQty, emptyReturned);
+      const newDepositQty = totalDepositQty - coverBalanceQty - coverEmptyQty;
+      const surplusEmpty = emptyReturned - coverEmptyQty; // 多交回、不涉及押金的空桶
+
+      // 新押金按明细行分摊（账上/空桶抵扣先消耗前序行，剩余行才收新押金）
+      let leftCover = coverBalanceQty + coverEmptyQty;
+      const newDepositLines = [];
       for (const ln of depositLines) {
-        ln.cover = Math.min(ln.qty, coverAvailable);
-        ln.newQty = ln.qty - ln.cover;
-        coverAvailable -= ln.cover;
+        const cover = Math.min(ln.qty, leftCover);
+        leftCover -= cover;
+        const nq = ln.qty - cover;
+        if (nq > 0) newDepositLines.push({ qty: nq, unitAmount: ln.unitAmount });
       }
-      const newDepositQty = depositLines.reduce((s, l) => s + l.newQty, 0);
-      const newDepositLines = depositLines
-        .filter((l) => l.newQty > 0)
-        .map((l) => ({ qty: l.newQty, unitAmount: l.unitAmount }));
       const depositAmount = newDepositLines.reduce((s, l) => s + l.qty * l.unitAmount, 0);
+
+      // —— 账实硬约束：本回执后累计实物交回不得超过累计接收（历史补底押金桶也算接收）——
+      const priorOut = bucketModel.totalOut(order.customer_id);
+      const priorReturned = bucketModel.totalReturned(order.customer_id);
+      const projectOut = priorOut + order.total_qty;
+      const projectReturned = priorReturned + emptyReturned;
+      if (projectReturned > projectOut) {
+        throw new BusinessError(
+          `空桶账实不符：本回执后累计交回 ${projectReturned} 个，超过该客户累计接收 ` +
+          `${projectOut} 个（历史已交回 ${priorReturned}），请核对「收回空桶数」`
+        );
+      }
 
       const totalDue = order.water_amount + depositAmount;
       if (cashCollected === undefined || cashCollected === null || cashCollected === '') {
@@ -174,6 +199,13 @@ const orderService = {
       cashCollected = Number(cashCollected);
       if (!Number.isInteger(cashCollected) || cashCollected < 0) throw new BusinessError('现金金额不正确');
       if (cashCollected > totalDue) throw new BusinessError(`收款 ${cashCollected} 分超过应收 ${totalDue} 分`);
+      // 新押金必须足额：押金是桶的担保，欠押金 = 无担保的桶在客户手里；水款允许挂账。
+      if (cashCollected < depositAmount) {
+        throw new BusinessError(
+          `押金必须足额：本次新收押金 ¥${fenToYuan(depositAmount)}，` +
+          `实收现金至少要覆盖押金（水款不足可挂账，押金不可欠）`
+        );
+      }
 
       const building = actualBuilding && actualBuilding.trim() ? actualBuilding.trim() : order.customer_building;
       const receiptNo = `R${deliveredAt.slice(0, 10).replace(/-/g, '')}-${String(
@@ -185,6 +217,8 @@ const orderService = {
         orderId,
         deliveredQty: order.total_qty,
         emptyReturned,
+        coverBalanceQty,
+        emptyCoverQty: coverEmptyQty,
         newDepositQty,
         depositAmount,
         cashCollected,
@@ -196,7 +230,37 @@ const orderService = {
         remark: remark || null,
       });
 
-      // 新押金桶进台账（与回执同一事务）
+      // ① 账上押金桶抵扣：FIFO 钉到历史收款批次 + 旧桶视同交回（deposit_offset + 空桶台账）
+      let offsetResult = null;
+      if (coverBalanceQty > 0) {
+        offsetResult = depositService.applyOffset({
+          customerId: order.customer_id,
+          qty: coverBalanceQty,
+          orderId,
+          receiptId,
+          receiptNo,
+          operator,
+          occurredAt: deliveredAt,
+        });
+      }
+
+      // ② 当场收回的实物空桶入空桶台账（含用于抵扣的与多交回的）
+      if (emptyReturned > 0) {
+        bucketModel.insertMovement({
+          customerId: order.customer_id,
+          movement: 'recover',
+          qty: emptyReturned,
+          sourceType: 'receipt',
+          sourceId: receiptId,
+          orderId,
+          refNo: receiptNo,
+          occurredAt: deliveredAt,
+          createdBy: operator,
+          remark: surplusEmpty > 0 ? `送达收回空桶（其中 ${surplusEmpty} 个不抵扣押金）` : '送达收回空桶',
+        });
+      }
+
+      // ③ 真正的新押金桶才收押金、进押金台账（与回执同一事务）
       let ledgerIds = [];
       if (newDepositLines.length) {
         ledgerIds = depositService.collectOnReceipt({
@@ -224,10 +288,13 @@ const orderService = {
         refNo: receiptNo,
         operator,
         detail: {
-          deliveredQty: order.total_qty, emptyReturned, newDepositQty,
+          deliveredQty: order.total_qty, emptyReturned,
+          coverBalanceQty, coverEmptyQty, newDepositQty,
           depositAmount, cashCollected, priorBalanceQty: preBalance.qty,
-          wrongBuilding: building !== order.customer_building,
+          surplusEmpty, wrongBuilding: building !== order.customer_building,
           actualBuilding: building, ledgerIds,
+          offsetId: offsetResult ? offsetResult.offsetId : null,
+          offsetAllocations: offsetResult ? offsetResult.allocations : [],
         },
       });
 
@@ -237,7 +304,10 @@ const orderService = {
         settlement: {
           priorBalanceQty: preBalance.qty,
           emptyReturned,
-          coveredQty: totalDepositQty - newDepositQty,
+          coverBalanceQty,
+          coverEmptyQty,
+          surplusEmpty,
+          coveredQty: coverBalanceQty + coverEmptyQty,
           newDepositQty,
           depositAmount,
           waterAmount: order.water_amount,
@@ -245,6 +315,7 @@ const orderService = {
           cashCollected,
           unpaid: totalDue - cashCollected,
           wrongBuilding: building !== order.customer_building,
+          offsetAllocations: offsetResult ? offsetResult.allocations : [],
         },
       };
     })();

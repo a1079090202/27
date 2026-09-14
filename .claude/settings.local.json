@@ -8,7 +8,21 @@
       "Bash(sleep *)",
       "Bash(xargs sed -i \"s#include\\('partials/#include\\('/partials/#g\")",
       "Bash(node src/server.js)",
-      "Bash(xargs sed -i \"s#include\\('/partials/#include\\('../partials/#g\")"
+      "Bash(xargs sed -i \"s#include\\('/partials/#include\\('../partials/#g\")",
+      "Bash(git -C /workspace log --oneline -5)",
+      "Bash(node *)",
+      "Bash(pkill -f \"node src/server.js\")",
+      "Bash(echo \"exit=$?\")",
+      "Bash(git -C /workspace status --short)",
+      "Bash(curl -s -o /dev/null -w \"server:%{http_code}\\\\n\" --max-time 1 http://localhost:3000/)",
+      "Bash(DB_FILE=/tmp/test-water.db PORT=3999 node *)",
+      "Bash(curl -s http://localhost:3000/customers/1)",
+      "Bash(curl -s \"http://localhost:3000/customers/1?refunded=5000\")",
+      "Bash(curl -s \"http://localhost:3000/daily\")",
+      "Bash(kill 4704)",
+      "Bash(rm -f /tmp/test-water.db*)",
+      "Bash(DB_FILE=/tmp/test-water.db node scripts/seed.js --reset)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" http://localhost:3999/orders)"
     ]
   }
 }

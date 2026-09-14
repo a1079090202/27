@@ -1,7 +1,8 @@
 const customerModel = require('../models/customerModel');
 const orderModel = require('../models/orderModel');
 const depositModel = require('../models/depositModel');
-const { BusinessError } = require('./errors');
+const bucketModel = require('../models/bucketModel');
+const { BusinessError, NotFoundError } = require('./errors');
 
 // 客户报电话查自己的历史订单和桶数
 const customerService = {
@@ -22,7 +23,7 @@ const customerService = {
 
   customerDetail(customerId) {
     const c = customerModel.getById(customerId);
-    if (!c) throw new BusinessError('客户不存在');
+    if (!c) throw new NotFoundError('客户不存在');
     return {
       customer: c,
       orders: orderModel.listByCustomer(c.id),
@@ -30,7 +31,9 @@ const customerService = {
       deposit: {
         balance: depositModel.getBalance(c.id),
         ledger: depositModel.listByCustomer(c.id),
+        offsets: depositModel.offsetTraceByCustomer(c.id),
       },
+      buckets: bucketModel.position(c.id),
     };
   },
 };

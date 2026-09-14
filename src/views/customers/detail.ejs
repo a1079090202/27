@@ -4,7 +4,7 @@
   <a class="btn secondary" href="/customers">返回列表</a>
 </div>
 
-<% if (typeof refundedFen !== 'undefined') { %>
+<% if (Number.isFinite(refundedFen)) { %>
   <div class="flash ok">✓ 退桶成功，退款 ¥<%= yuan(refundedFen) %> 已记入押金台账（现金支出）。</div>
 <% } %>
 
@@ -14,6 +14,18 @@
     <div class="sub">押金桶 <%= totals.deposit_qty %> · 自有桶 <%= totals.own_qty %></div></div>
   <div class="card kpi deposit"><div class="label">押金桶结余</div><div class="value"><%= deposit.balance.qty %></div><div class="sub">站外在押的桶</div></div>
   <div class="card kpi cash"><div class="label">押金余额</div><div class="value">¥<%= yuan(deposit.balance.amount) %></div><div class="sub">台账滚存，只增不改</div></div>
+</div>
+
+<div class="card <%= buckets.returned > buckets.out ? 'wrong-building' : '' %>">
+  <h2>空桶账实位置（实物台账）
+    <% if (buckets.returned > buckets.out) { %><span class="badge warn">账实异常：交回多于接收</span><% } %>
+  </h2>
+  <div class="grid grid-4" style="margin-top:8px">
+    <div><div class="muted" style="font-size:12px">累计接收桶数</div><div style="font-size:22px"><%= buckets.out %></div><div class="muted" style="font-size:12px">含历史押金补底</div></div>
+    <div><div class="muted" style="font-size:12px">累计交回空桶</div><div style="font-size:22px"><%= buckets.returned %></div><div class="muted" style="font-size:12px"><a href="/buckets?customer_id=<%= customer.id %>">空桶台账</a></div></div>
+    <div><div class="muted" style="font-size:12px">尚在客户手中</div><div style="font-size:22px"><%= buckets.held %></div><div class="muted" style="font-size:12px">接收 − 交回</div></div>
+    <div><div class="muted" style="font-size:12px">押金桶结余</div><div style="font-size:22px"><%= deposit.balance.qty %></div><div class="muted" style="font-size:12px">押金台账口径</div></div>
+  </div>
 </div>
 
 <div class="grid grid-2">
@@ -56,6 +68,30 @@
       <p class="muted" style="font-size:12px">退多少钱由系统按收款先后自动匹配：当初哪张收据、什么标准收的，就按什么标准退，逐桶钉到原收款行。余额不足直接拒。</p>
     </form>
   </div>
+</div>
+
+<div class="card">
+  <h2>账上押金桶抵扣置换（担保置换，未退款）</h2>
+  <% if (!deposit.offsets.length) { %>
+    <p class="muted">暂无抵扣记录。</p>
+  <% } else { %>
+  <table>
+    <tr><th>时间</th><th>回执</th><th class="num">抵扣桶数</th><th>钉到的历史收款（FIFO）</th></tr>
+    <% deposit.offsets.forEach(o => { %>
+      <tr>
+        <td class="mono"><%= o.occurred_at %></td>
+        <td class="mono"><a href="/orders/<%= o.order_id %>">订单 #<%= o.order_id %></a><div class="alloc">回执 #<%= o.receipt_id %></div></td>
+        <td class="num"><b><%= o.qty %></b></td>
+        <td class="alloc">
+          <% o.allocations.forEach(a => { %>
+            <div><%= a.qty %> 桶 ← <%= a.collect_at.slice(0,10) %> 收据「<%= a.collect_ref_no || '无号' %>」@¥<%= yuan(a.unit_amount) %>/桶<% if (a.source_type==='migration') { %> <span class="badge cancelled">历史补底</span><% } %></div>
+          <% }) %>
+        </td>
+      </tr>
+    <% }) %>
+  </table>
+  <% } %>
+  <p class="muted" style="font-size:12px;margin-top:8px">旧押金担保从旧桶转到新桶，押金未退、可退余额不变，但每只桶都钉到当初的收款，防止「抵扣一次又现金退一次」。</p>
 </div>
 
 <div class="card">

@@ -1,0 +1,76 @@
+<%- include('../partials/header', { title: '空桶实物台账' }) %>
+<div class="page-head">
+  <h1>空桶实物台账 <span class="muted" style="font-size:13px">只允许新增（送达收回 / 退桶交回），禁止改数字、禁止删除</span></h1>
+</div>
+
+<div class="grid grid-4">
+  <div class="card kpi">
+    <div class="label">当日送达收回</div>
+    <div class="value"><%= todayMove.recover %></div>
+    <div class="sub">回执当场收回空桶</div>
+  </div>
+  <div class="card kpi">
+    <div class="label">当日退桶交回</div>
+    <div class="value"><%= todayMove.refund_in %></div>
+    <div class="sub">客户退桶时交回</div>
+  </div>
+  <div class="card kpi deposit">
+    <div class="label">当日合计回站</div>
+    <div class="value"><%= todayMove.total %></div>
+    <div class="sub"><%= todayMove.lines %> 笔流水</div>
+  </div>
+  <div class="card kpi cash">
+    <div class="label">全站在库空桶（累计）</div>
+    <div class="value"><%= stock %></div>
+    <div class="sub">累计回收（截止所选日）</div>
+  </div>
+</div>
+
+<div class="card filters">
+  <form method="get">
+    <div>
+      <label>客户</label>
+      <select name="customer_id">
+        <option value="">全部</option>
+        <% customers.forEach(c => { %>
+          <option value="<%= c.id %>" <%= String(customerId)===String(c.id)?'selected':'' %>><%= c.code %> · <%= c.name %></option>
+        <% }) %>
+      </select>
+    </div>
+    <div>
+      <label>日期</label>
+      <input type="date" name="date" value="<%= date %>">
+    </div>
+    <div style="flex:0 0 auto"><button class="btn">查询</button></div>
+  </form>
+</div>
+
+<div class="card">
+  <% if (!entries.length) { %><p class="muted">没有记录。</p><% } else { %>
+  <table>
+    <tr>
+      <th>时间</th><th>客户</th><th>通道</th><th class="num">数量</th>
+      <th>来源单号</th><th>操作人</th><th>备注</th>
+    </tr>
+    <% entries.forEach(e => { %>
+      <tr>
+        <td class="mono"><%= e.occurred_at %></td>
+        <td><a href="/customers/<%= e.customer_id %>"><%= e.customer_name %></a><div class="alloc"><%= e.customer_code %> · <%= e.building %><%= e.room %></div></td>
+        <td>
+          <% if (e.movement === 'recover') { %><span class="badge dispatched">送达收回</span>
+          <% } else { %><span class="badge refund">退桶交回</span><% } %>
+        </td>
+        <td class="num"><b><%= e.qty %></b></td>
+        <td class="mono"><%= e.ref_no || '—' %></td>
+        <td><%= e.created_by %></td>
+        <td class="alloc"><%= e.remark || '' %></td>
+      </tr>
+    <% }) %>
+  </table>
+  <% } %>
+  <p class="muted" style="font-size:12px;margin-top:10px">
+    账实约束：每个客户「累计交回空桶 ≤ 累计接收桶数（含历史押金补底）」，超出直接拒收回执/退桶并在日结标红。
+    账上押金桶抵扣是担保置换、物理上不单独回桶，故只在押金抵扣台账留痕、不进此表。
+  </p>
+</div>
+<%- include('../partials/footer') %>

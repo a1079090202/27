@@ -6,10 +6,12 @@ const receiptModel = {
     const info = getDb().prepare(`
       INSERT INTO receipts (
         receipt_no, order_id, delivered_qty, empty_returned,
+        cover_balance_qty, empty_cover_qty,
         new_deposit_qty, deposit_amount, cash_collected,
         order_building, actual_building, delivered_at, created_by, created_at, remark
       ) VALUES (
         @receiptNo, @orderId, @deliveredQty, @emptyReturned,
+        @coverBalanceQty, @emptyCoverQty,
         @newDepositQty, @depositAmount, @cashCollected,
         @orderBuilding, @actualBuilding, @deliveredAt, @createdBy, @createdAt, @remark
       )

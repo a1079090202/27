@@ -5,6 +5,20 @@
   <a class="btn" href="/orders/new">＋ 开新单</a>
 </div>
 
+<% if (!closeStatus.yesterdayClosed) { %>
+<div class="card" style="background:#fffbeb;border:1px solid #f59e0b">
+  ⚠ <%= closeStatus.latestCloseDate
+       ? `账只封到 ${closeStatus.latestCloseDate}，昨日（${closeStatus.yesterday}）尚未封账`
+       : `昨日（${closeStatus.yesterday}）尚未封账，全站还没有封账记录` %>：
+  <a href="/daily?date=<%= closeStatus.yesterday %>">去封账 →</a>
+  <span class="muted">（零业务日也应封账，保持封账链连续）</span>
+</div>
+<% } else { %>
+<div class="card" style="background:#f0fdf4;border:1px solid #16a34a">
+  🔒 昨日已封账（账封至 <%= closeStatus.latestCloseDate %>）。
+</div>
+<% } %>
+
 <div class="grid grid-4">
   <div class="card kpi cash">
     <div class="label">今日现金净流入</div>
@@ -15,6 +29,7 @@
     <div class="label">今日新增未收款</div>
     <div class="value">¥<%= yuan(report.unpaid.todayAmount) %></div>
     <div class="sub"><%= report.unpaid.todayOrders %> 单挂账 · 累计 ¥<%= yuan(report.unpaid.totalAmount) %></div>
+    <div class="sub">今日欠水款 ¥<%= yuan(report.unpaid.todayWater) %><% if (report.unpaid.todayDeposit > 0) { %> · <span style="color:var(--red)">欠押金 ¥<%= yuan(report.unpaid.todayDeposit) %></span><% } %></div>
   </div>
   <div class="card kpi deposit">
     <div class="label">今日押金净变动</div>
@@ -27,6 +42,48 @@
     <div class="sub"><%= report.deposit.endQty %> 个押金桶在站外</div>
   </div>
 </div>
+
+<div class="grid grid-4">
+  <div class="card kpi deposit">
+    <div class="label">今日空桶回站</div>
+    <div class="value"><%= report.empty.todayTotal %></div>
+    <div class="sub">送达收 <%= report.empty.recover %> · 退桶交 <%= report.empty.refundIn %></div>
+  </div>
+  <div class="card kpi">
+    <div class="label">账上押金桶抵扣置换</div>
+    <div class="value"><%= report.deposit.offsetQty %></div>
+    <div class="sub">不退钱，逐桶钉历史收据</div>
+  </div>
+  <div class="card kpi">
+    <div class="label">全站在库空桶（累计）</div>
+    <div class="value"><%= report.empty.stock %></div>
+    <div class="sub"><a href="/buckets">空桶台账 →</a></div>
+  </div>
+  <div class="card kpi <%= report.anomalous.length ? 'unpaid' : '' %>">
+    <div class="label">账实异常客户</div>
+    <div class="value" style="color:<%= report.anomalous.length ? 'var(--red)' : '' %>"><%= report.anomalous.length %></div>
+    <div class="sub"><%= report.anomalous.length ? '交回 &gt; 接收，立即盘点' : '账实相符' %></div>
+  </div>
+</div>
+
+<% if (report.anomalous.length) { %>
+<div class="card" style="border:1px solid var(--red);background:var(--red-bg)">
+  <h2>⚠ 空桶账实脱钩（<%= report.anomalous.length %> 户）</h2>
+  <table>
+    <tr><th>客户</th><th>楼栋门牌</th><th class="num">累计接收</th><th class="num">累计交回</th><th class="num">多交</th><th></th></tr>
+    <% report.anomalous.forEach(a => { %>
+      <tr>
+        <td><%= a.name %> <span class="muted"><%= a.code %></span></td>
+        <td><%= a.building %> <%= a.room %></td>
+        <td class="num"><%= a.out_qty %></td>
+        <td class="num"><%= a.returned_qty %></td>
+        <td class="num" style="color:var(--red)"><b><%= a.returned_qty - a.out_qty %></b></td>
+        <td><a class="btn sm" href="/customers/<%= a.id %>">核查</a></td>
+      </tr>
+    <% }) %>
+  </table>
+</div>
+<% } %>
 
 <% if (overdue.length) { %>
 <div class="card">
@@ -77,13 +134,12 @@
   </div>
   <div class="card">
     <h2>今日押金流水</h2>
-    <% const both = report.receipts.length; %>
     <ul class="plain">
       <li>新收押金：<b>¥<%= yuan(report.deposit.collected) %></b>（<%= report.deposit.collectedQty %> 桶）</li>
       <li>退桶退款：<b>¥<%= yuan(report.deposit.refunded) %></b>（<%= report.deposit.refundedQty %> 桶）</li>
     </ul>
     <p class="muted" style="font-size:12px;margin-top:8px">
-      日结自动对账：<% if (report.allPass) { %><span class="badge ok">4 项全部平衡 ✓</span><% } else { %><span class="badge warn">有不平项，立即查日结页</span><% } %>
+      日结自动对账：<% if (report.allPass) { %><span class="badge ok"><%= report.checks.length %> 项全部平衡 ✓</span><% } else { %><span class="badge warn">有不平项，立即查日结页</span><% } %>
     </p>
     <p><a href="/deposits?date=<%= today %>">打开押金台账 →</a></p>
   </div>
