@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title><%= typeof title !== 'undefined' ? title : '水站台账' %></title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+<header class="topbar">
+  <span class="logo">💧 水站配送 · 押金台账</span>
+  <nav>
+    <a href="/">看板</a>
+    <a href="/orders/new">开单</a>
+    <a href="/orders">订单</a>
+    <a href="/customers">客户</a>
+    <a href="/deposits">押金台账</a>
+    <a href="/daily">日结</a>
+    <a href="/query">电话查单</a>
+  </nav>
+  <div class="op">
+    <% if (operator) { %>
+      <span>操作人</span>
+      <form method="get" action="/operator">
+        <input name="name" value="<%= operator %>" title="切换操作人" style="width:90px">
+        <input type="hidden" name="back" value="<%= originalUrl || '/' %>">
+        <button class="btn sm secondary" type="submit">切换</button>
+      </form>
+    <% } else { %>
+      <form method="get" action="/operator">
+        <input name="name" placeholder="输入操作人姓名" required>
+        <input type="hidden" name="back" value="<%= originalUrl || '/' %>">
+        <button class="btn sm" type="submit">登录</button>
+      </form>
+    <% } %>
+  </div>
+</header>
+<% if (!operator) { %>
+  <div class="noop-bar">⚠ 尚未选择操作人：可以浏览，但开单、分派、录回执、退桶都必须先在右上角填写操作人。</div>
+<% } %>
+<main class="container">

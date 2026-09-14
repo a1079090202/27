@@ -1,0 +1,97 @@
+<%- include('../partials/header', { title: '日结 ' + report.date }) %>
+<div class="page-head">
+  <h1>日结 · <%= report.date %></h1>
+  <form method="get" style="display:flex;gap:8px">
+    <input type="date" name="date" value="<%= report.date %>" style="width:160px">
+    <button class="btn">切换日期</button>
+  </form>
+</div>
+
+<div class="grid grid-4">
+  <div class="card kpi cash">
+    <div class="label">① 现金净流入</div>
+    <div class="value">¥<%= yuan(report.cash.net) %></div>
+    <div class="sub">回执收回 ¥<%= yuan(report.cash.in) %> − 退押支出 ¥<%= yuan(report.cash.out) %></div>
+    <div class="sub">其中水款 ¥<%= yuan(report.cash.waterPart) %> · 押金 ¥<%= yuan(report.cash.depositPart) %></div>
+  </div>
+  <div class="card kpi unpaid">
+    <div class="label">② 今日新增未收款</div>
+    <div class="value">¥<%= yuan(report.unpaid.todayAmount) %></div>
+    <div class="sub"><%= report.unpaid.todayOrders %> 单未结清</div>
+  </div>
+  <div class="card kpi deposit">
+    <div class="label">③ 押金净变动</div>
+    <div class="value">¥<%= yuan(report.deposit.net) %></div>
+    <div class="sub">收 ¥<%= yuan(report.deposit.collected) %> − 退 ¥<%= yuan(report.deposit.refunded) %></div>
+    <div class="sub">收 <%= report.deposit.collectedQty %> 桶 / 退 <%= report.deposit.refundedQty %> 桶</div>
+  </div>
+  <div class="card kpi">
+    <div class="label">累计未收款（全部）</div>
+    <div class="value" style="color:#92400e">¥<%= yuan(report.unpaid.totalAmount) %></div>
+    <div class="sub"><%= report.unpaid.totalOrders %> 单挂账</div>
+  </div>
+</div>
+
+<div class="card">
+  <h2>押金余额变动</h2>
+  <table>
+    <tr><th>期初（昨日末）</th><td class="num"><%= '' %></td><td class="num">¥<%= yuan(report.deposit.beginAmount) %></td></tr>
+    <tr><th>今日新收押金</th><td class="num">+<%= report.deposit.collectedQty %> 桶</td><td class="num">+¥<%= yuan(report.deposit.collected) %></td></tr>
+    <tr><th>今日退桶退款</th><td class="num">−<%= report.deposit.refundedQty %> 桶</td><td class="num">−¥<%= yuan(report.deposit.refunded) %></td></tr>
+    <tr><th><b>期末押金余额（全站客户）</b></th><td class="num"><b><%= report.deposit.endQty %> 桶</b></td><td class="num"><b>¥<%= yuan(report.deposit.endAmount) %></b></td></tr>
+  </table>
+</div>
+
+<div class="card">
+  <h2>自动对账（每一分钱钉到源头）</h2>
+  <table class="checks">
+    <tr><th>核对项</th><th class="num">左值</th><th class="num">右值</th><th>结果</th></tr>
+    <% report.checks.forEach(c => { %>
+      <tr>
+        <td><%= c.name %></td>
+        <td class="num"><%= c.unit === 'fen' ? '¥'+yuan(c.left) : c.left %></td>
+        <td class="num"><%= c.unit === 'fen' ? '¥'+yuan(c.right) : c.right %></td>
+        <td class="<%= c.pass ? 'pass':'fail' %>"><%= c.pass ? '✓ 平' : '✗ 不平' %></td>
+      </tr>
+    <% }) %>
+  </table>
+  <p style="margin-top:8px">
+    <% if (report.allPass) { %><span class="badge ok">本日账务平衡</span><% } else { %><span class="badge warn">有不平项，立即停账排查</span><% } %>
+  </p>
+</div>
+
+<div class="grid grid-2">
+  <div class="card">
+    <h2>现金收入明细（回执 <%= report.receipts.length %>）</h2>
+    <table>
+      <tr><th>回执</th><th>客户</th><th class="num">水款</th><th class="num">押金</th><th class="num">收现</th></tr>
+      <% report.receipts.forEach(r => { %>
+        <tr>
+          <td class="mono"><%= r.receipt_no %></td>
+          <td><%= r.customer_name %></td>
+          <td class="num">¥<%= yuan(r.cash_collected - r.deposit_amount) %></td>
+          <td class="num">¥<%= yuan(r.deposit_amount) %></td>
+          <td class="num">¥<%= yuan(r.cash_collected) %></td>
+        </tr>
+      <% }) %>
+      <% if (!report.receipts.length) { %><tr><td colspan="5" class="muted">今日无回执</td></tr><% } %>
+    </table>
+  </div>
+  <div class="card">
+    <h2>现金支出明细（退桶 <%= report.refunds.length %>）</h2>
+    <table>
+      <tr><th>时间</th><th>客户</th><th class="num">桶数</th><th class="num">退款</th><th>收据号</th></tr>
+      <% report.refunds.forEach(r => { %>
+        <tr>
+          <td class="mono"><%= r.occurred_at %></td>
+          <td><%= r.customer_name %></td>
+          <td class="num"><%= r.qty %></td>
+          <td class="num">−¥<%= yuan(r.amount) %></td>
+          <td class="mono"><%= r.ref_no || '—' %></td>
+        </tr>
+      <% }) %>
+      <% if (!report.refunds.length) { %><tr><td colspan="5" class="muted">今日无退款</td></tr><% } %>
+    </table>
+  </div>
+</div>
+<%- include('../partials/footer') %>

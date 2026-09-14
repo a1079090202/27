@@ -1,0 +1,10 @@
+<%- include('partials/header') %>
+<div class="card">
+  <h1 style="font-size:18px;margin:0 0 8px;">操作被拒绝</h1>
+  <div class="flash err"><%= message %></div>
+  <% if (code === 'DUPLICATE_RECEIPT') { %>
+    <p class="muted">这是回执幂等保护：同一订单只允许一张回执，本次重复提交没有改动任何数据（订单数、空桶数、押金台账、现金均未变化）。请刷新订单详情查看已录的回执。</p>
+  <% } %>
+  <p><a class="btn" href="<%= back %>">返回</a></p>
+</div>
+<%- include('partials/footer') %>

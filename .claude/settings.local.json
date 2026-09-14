@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm -v)",
+      "Bash(npm config *)",
+      "Bash(npm install *)",
+      "Bash(npm run *)",
+      "Bash(sleep *)",
+      "Bash(xargs sed -i \"s#include\\('partials/#include\\('/partials/#g\")",
+      "Bash(node src/server.js)",
+      "Bash(xargs sed -i \"s#include\\('/partials/#include\\('../partials/#g\")"
+    ]
+  }
+}

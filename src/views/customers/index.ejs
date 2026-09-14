@@ -1,0 +1,30 @@
+<%- include('../partials/header', { title: '客户档案' }) %>
+<div class="page-head">
+  <h1>客户档案</h1>
+  <span class="muted">共 <%= customers.length %> 户</span>
+</div>
+<div class="card filters">
+  <form method="get">
+    <div style="min-width:260px">
+      <label>搜索（姓名 / 电话 / 水牌号 / 楼栋）</label>
+      <input name="q" value="<%= q %>" placeholder="输入关键字">
+    </div>
+    <div style="flex:0 0 auto"><button class="btn">搜索</button></div>
+  </form>
+</div>
+<div class="card">
+  <table>
+    <tr><th>水牌号</th><th>姓名</th><th>电话</th><th>楼栋</th><th>门牌</th><th></th></tr>
+    <% customers.forEach(c => { %>
+      <tr>
+        <td class="mono"><%= c.code %></td>
+        <td><%= c.name %></td>
+        <td class="mono"><%= c.phone %></td>
+        <td><%= c.building %></td>
+        <td><%= c.room %></td>
+        <td><a class="btn sm secondary" href="/customers/<%= c.id %>">档案/押金</a></td>
+      </tr>
+    <% }) %>
+  </table>
+</div>
+<%- include('../partials/footer') %>

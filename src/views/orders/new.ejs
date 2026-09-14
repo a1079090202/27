@@ -1,0 +1,67 @@
+<%- include('../partials/header', { title: '开单' }) %>
+<div class="page-head"><h1>开送水单</h1><a class="btn secondary" href="/orders">返回订单</a></div>
+
+<% if (!operator) { %><div class="flash warn">请先在右上角填写操作人再开单。</div><% } %>
+
+<div class="card">
+<form method="post" action="/orders" id="orderForm">
+  <div class="form-row">
+    <div style="min-width:240px">
+      <label>客户（水牌号 / 姓名）</label>
+      <select name="customer_id" id="customer" required>
+        <option value="">请选择</option>
+        <% customers.forEach(c => { %>
+          <option value="<%= c.id %>"><%= c.code %> · <%= c.name %> · <%= c.building %><%= c.room %> · <%= c.phone %></option>
+        <% }) %>
+      </select>
+    </div>
+    <div style="min-width:260px">
+      <label>备注</label>
+      <input name="remark" placeholder="选填，如「放门口」">
+    </div>
+  </div>
+
+  <h2 style="margin-top:18px">明细（押金桶 / 客户自有桶 分开记）</h2>
+  <table id="lines">
+    <tr><th>品牌规格</th><th>桶类型</th><th class="num" style="width:120px">数量</th><th style="width:60px"></th></tr>
+  </table>
+  <button type="button" class="btn secondary sm" id="addLine" style="margin-top:8px">＋ 加一行</button>
+
+  <div class="form-row" style="margin-top:14px">
+    <div style="flex:0 0 auto">
+      <button type="submit" class="btn" <%= operator ? '' : 'disabled' %>>开单</button>
+    </div>
+    <div class="muted" style="align-self:center">
+      押金桶的押金不在开单时收，送达回执时按「已有押金桶 + 当场交回空桶」结算，押多少收多少。
+    </div>
+  </div>
+</form>
+</div>
+
+<script>
+const PRODUCTS = <%- JSON.stringify(products.map(p => ({
+  id: p.id, name: p.name, price: p.unit_price, deposit: p.deposit_per_bucket
+}))) %>;
+
+function productOptions() {
+  return PRODUCTS.map(p => `<option value="${p.id}">${p.name}（水 ¥${(p.price/100).toFixed(2)} / 押 ¥${(p.deposit/100).toFixed(2)}）</option>`).join('');
+}
+
+function addLine() {
+  const tr = document.createElement('tr');
+  tr.innerHTML = `
+    <td><select name="product_id" required><option value="">请选择</option>${productOptions()}</select></td>
+    <td>
+      <select name="bucket_type" required>
+        <option value="deposit">押金桶（站里的桶，要押）</option>
+        <option value="own">客户自有桶</option>
+      </select>
+    </td>
+    <td class="num"><input name="qty" type="number" min="1" step="1" value="1" required style="text-align:right"></td>
+    <td><button type="button" class="btn sm secondary" onclick="this.closest('tr').remove()">删</button></td>`;
+  document.getElementById('lines').appendChild(tr);
+}
+document.getElementById('addLine').addEventListener('click', addLine);
+addLine();
+</script>
+<%- include('../partials/footer') %>

@@ -1,0 +1,92 @@
+<%- include('../partials/header', { title: '客户 ' + customer.name }) %>
+<div class="page-head">
+  <h1><%= customer.name %> <span class="muted" style="font-size:14px"><%= customer.code %> · <%= customer.building %> <%= customer.room %></span></h1>
+  <a class="btn secondary" href="/customers">返回列表</a>
+</div>
+
+<% if (typeof refundedFen !== 'undefined') { %>
+  <div class="flash ok">✓ 退桶成功，退款 ¥<%= yuan(refundedFen) %> 已记入押金台账（现金支出）。</div>
+<% } %>
+
+<div class="grid grid-4">
+  <div class="card kpi"><div class="label">历史订单</div><div class="value"><%= totals.order_count %></div></div>
+  <div class="card kpi"><div class="label">已送达桶数</div><div class="value"><%= totals.delivered_qty %></div>
+    <div class="sub">押金桶 <%= totals.deposit_qty %> · 自有桶 <%= totals.own_qty %></div></div>
+  <div class="card kpi deposit"><div class="label">押金桶结余</div><div class="value"><%= deposit.balance.qty %></div><div class="sub">站外在押的桶</div></div>
+  <div class="card kpi cash"><div class="label">押金余额</div><div class="value">¥<%= yuan(deposit.balance.amount) %></div><div class="sub">台账滚存，只增不改</div></div>
+</div>
+
+<div class="grid grid-2">
+  <div class="card">
+    <h2>历史订单（报电话 <%= customer.phone %> 可查）</h2>
+    <table>
+      <tr><th>单号</th><th>日期</th><th class="num">桶数</th><th class="num">金额</th><th>状态</th></tr>
+      <% orders.forEach(o => { %>
+        <tr>
+          <td class="mono"><a href="/orders/<%= o.id %>"><%= o.order_no %></a></td>
+          <td class="mono"><%= o.order_date %></td>
+          <td class="num"><%= o.total_qty %></td>
+          <td class="num">¥<%= yuan(o.total_amount) %></td>
+          <td><span class="badge <%= o.status %>"><%= statusText[o.status] %></span></td>
+        </tr>
+      <% }) %>
+      <% if (!orders.length) { %><tr><td colspan="5" class="muted">暂无订单</td></tr><% } %>
+    </table>
+  </div>
+
+  <div class="card" id="deposit">
+    <h2>退桶（押金只能退，不许直接改）</h2>
+    <form method="post" action="/deposits/refund">
+      <input type="hidden" name="customer_id" value="<%= customer.id %>">
+      <div class="form-row">
+        <div style="max-width:130px">
+          <label>退桶数量</label>
+          <input name="qty" type="number" min="1" step="1" value="1" required>
+        </div>
+        <div>
+          <label>退款单号/收据号</label>
+          <input name="ref_no" placeholder="如客户交回的收据编号">
+        </div>
+      </div>
+      <div style="margin-top:10px">
+        <label>备注</label>
+        <input name="remark" placeholder="选填，如「2019 老收据退桶」">
+      </div>
+      <button type="submit" class="btn danger" <%= operator?'':'disabled' %>>按台账 FIFO 退桶退款</button>
+      <p class="muted" style="font-size:12px">退多少钱由系统按收款先后自动匹配：当初哪张收据、什么标准收的，就按什么标准退，逐桶钉到原收款行。余额不足直接拒。</p>
+    </form>
+  </div>
+</div>
+
+<div class="card">
+  <h2>押金台账（只增不改，余额逐行滚存）</h2>
+  <table>
+    <tr>
+      <th>时间</th><th>收/退</th><th class="num">桶数</th><th class="num">单桶押金</th><th class="num">金额</th>
+      <th class="num">结余桶</th><th class="num">结余金额</th><th>来源/收据号</th><th>操作人</th><th>溯源</th>
+    </tr>
+    <% deposit.ledger.forEach(l => { %>
+      <tr>
+        <td class="mono"><%= l.occurred_at %></td>
+        <td><span class="badge <%= l.direction %>"><%= l.direction==='collect'?'收押金':'退押金' %></span></td>
+        <td class="num"><%= l.qty %></td>
+        <td class="num">¥<%= yuan(l.unit_amount) %></td>
+        <td class="num">¥<%= yuan(l.amount) %></td>
+        <td class="num"><%= l.balance_qty %></td>
+        <td class="num">¥<%= yuan(l.balance_amount) %></td>
+        <td>
+          <%= ({migration:'历史补录', order:'送达回执', manual_refund:'退桶'})[l.source_type] %>
+          <% if (l.ref_no) { %><div class="alloc">单号：<%= l.ref_no %></div><% } %>
+        </td>
+        <td><%= l.created_by %></td>
+        <td class="alloc">
+          <% if (l.direction === 'refund') { %>
+          <a href="/deposits?customer_id=<%= customer.id %>">查看匹配到的原始收据 →</a>
+          <% } else if (l.source_type === 'migration') { %><%= l.remark || '' %><% } %>
+        </td>
+      </tr>
+    <% }) %>
+    <% if (!deposit.ledger.length) { %><tr><td colspan="10" class="muted">该客户暂无押金记录</td></tr><% } %>
+  </table>
+</div>
+<%- include('../partials/footer') %>

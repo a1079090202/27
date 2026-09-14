@@ -1,0 +1,59 @@
+<%- include('../partials/header', { title: '押金台账' }) %>
+<div class="page-head">
+  <h1>押金台账 <span class="muted" style="font-size:13px">只允许新增收/退记录，禁止改数字、禁止删除</span></h1>
+</div>
+
+<div class="card filters">
+  <form method="get">
+    <div>
+      <label>客户</label>
+      <select name="customer_id">
+        <option value="">全部</option>
+        <% customers.forEach(c => { %>
+          <option value="<%= c.id %>" <%= String(customerId)===String(c.id)?'selected':'' %>><%= c.code %> · <%= c.name %></option>
+        <% }) %>
+      </select>
+    </div>
+    <div>
+      <label>日期</label>
+      <input type="date" name="date" value="<%= date %>">
+    </div>
+    <div style="flex:0 0 auto"><button class="btn">查询</button></div>
+  </form>
+</div>
+
+<div class="card">
+  <% if (!entries.length) { %><p class="muted">没有记录。</p><% } else { %>
+  <table>
+    <tr>
+      <th>时间</th><th>客户</th><th>收/退</th><th class="num">桶数</th>
+      <th class="num">单桶押金</th><th class="num">金额</th>
+      <th class="num">该客户结余桶</th><th class="num">结余金额</th>
+      <th>来源</th><th>单号/收据</th><th>操作人</th><th>退款溯源（退的哪笔收的桶）</th>
+    </tr>
+    <% entries.forEach(l => { %>
+      <tr>
+        <td class="mono"><%= l.occurred_at %></td>
+        <td><a href="/customers/<%= l.customer_id %>"><%= l.customer_name %></a><div class="alloc"><%= l.customer_code %> · <%= l.building %><%= l.room %></div></td>
+        <td><span class="badge <%= l.direction %>"><%= l.direction==='collect'?'收押金':'退押金' %></span></td>
+        <td class="num"><%= l.qty %></td>
+        <td class="num">¥<%= yuan(l.unit_amount) %></td>
+        <td class="num"><b>¥<%= yuan(l.amount) %></b></td>
+        <td class="num"><%= l.balance_qty %></td>
+        <td class="num">¥<%= yuan(l.balance_amount) %></td>
+        <td><%= ({migration:'历史补录', order:'送达回执', manual_refund:'退桶'})[l.source_type] %></td>
+        <td class="mono"><%= l.ref_no || '—' %></td>
+        <td><%= l.created_by %></td>
+        <td class="alloc">
+          <% if (l.direction === 'refund' && l.allocations && l.allocations.length) { %>
+            <% l.allocations.forEach(a => { %>
+              <div>退 <b><%= a.qty %></b> 个 ← <%= a.collect_at.slice(0,10) %> 收的（¥<%= yuan(a.unit_amount) %>/桶<% if (a.collect_ref_no) { %>，收据 <%= a.collect_ref_no %><% } %>）</div>
+            <% }) %>
+          <% } else if (l.direction === 'refund') { %>匹配失败<% } else { %>—<% } %>
+        </td>
+      </tr>
+    <% }) %>
+  </table>
+  <% } %>
+</div>
+<%- include('../partials/footer') %>

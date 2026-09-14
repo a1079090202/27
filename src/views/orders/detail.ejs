@@ -1,0 +1,146 @@
+<%- include('../partials/header', { title: '订单 ' + order.order_no }) %>
+<div class="page-head">
+  <h1>订单 <span class="mono"><%= order.order_no %></span>
+    <span class="badge <%= order.status %>"><%= statusText[order.status] %></span>
+  </h1>
+  <a class="btn secondary" href="/orders">返回列表</a>
+</div>
+
+<% if (typeof created !== 'undefined' && created) { %>
+  <div class="flash ok">✓ 开单成功。下一步：分派给师傅。</div>
+<% } %>
+<% if (wrongQuery) { %>
+  <div class="flash warn">⚠ 回执已录，但实际送达楼栋与回单地址不一致，已在台账标红，请立即联系客户与师傅核实。</div>
+<% } else if (receiptQuery) { %>
+  <div class="flash ok">✓ 回执已录入，押金与现金已进账。</div>
+<% } %>
+
+<div class="grid grid-2">
+  <div class="card">
+    <h2>客户与地址</h2>
+    <table>
+      <tr><th>客户</th><td><a href="/customers/<%= order.customer_id %>"><%= order.customer_name %></a>（<%= order.customer_code %>）</td></tr>
+      <tr><th>电话</th><td><%= order.customer_phone %></td></tr>
+      <tr><th>回单地址</th><td><b><%= order.customer_building %> <%= order.customer_room %></b></td></tr>
+      <tr><th>备注</th><td><%= order.remark || '—' %></td></tr>
+    </table>
+
+    <h2 style="margin-top:16px">明细</h2>
+    <table>
+      <tr><th>品牌规格</th><th>桶类型</th><th class="num">数量</th><th class="num">水价</th><th class="num">小计</th></tr>
+      <% order.items.forEach(i => { %>
+        <tr>
+          <td><%= i.product_name %></td>
+          <td>
+            <% if (i.bucket_type === 'deposit') { %><span class="badge dispatched">押金桶</span>
+            <% } else { %><span class="badge cancelled">客户自有桶</span><% } %>
+          </td>
+          <td class="num"><%= i.qty %></td>
+          <td class="num">¥<%= yuan(i.unit_price) %></td>
+          <td class="num">¥<%= yuan(i.qty * i.unit_price) %></td>
+        </tr>
+      <% }) %>
+      <tr>
+        <td colspan="4" class="num"><b>水款合计</b></td>
+        <td class="num"><b>¥<%= yuan(order.water_amount) %></b></td>
+      </tr>
+      <% if (order.status === 'delivered') { %>
+      <tr>
+        <td colspan="4" class="num">新收押金（<%= order.deposit_qty %> 个押金桶抵扣后）</td>
+        <td class="num">¥<%= yuan(order.deposit_amount) %></td>
+      </tr>
+      <tr>
+        <td colspan="4" class="num"><b>应收 / 已收 / 未收</b></td>
+        <td class="num">
+          ¥<%= yuan(order.total_amount) %> /
+          ¥<%= yuan(order.paid_amount) %> /
+          <b class="<%= order.total_amount-order.paid_amount>0?'':'muted' %>" style="color:<%= order.total_amount-order.paid_amount>0?'#92400e':'' %>">¥<%= yuan(order.total_amount-order.paid_amount) %></b>
+        </td>
+      </tr>
+      <% } %>
+    </table>
+  </div>
+
+  <div class="card">
+    <% if (order.status === 'placed') { %>
+      <h2>分派师傅</h2>
+      <form method="post" action="/orders/<%= order.id %>/dispatch">
+        <label>师傅</label>
+        <select name="driver_id" required>
+          <option value="">请选择</option>
+          <% drivers.forEach(d => { %><option value="<%= d.id %>"><%= d.name %></option><% }) %>
+        </select>
+        <button type="submit" class="btn" <%= operator?'':'disabled' %>>分派</button>
+        <% if (!operator) { %><p class="muted">请先在右上角选择操作人。</p><% } %>
+      </form>
+    <% } else if (order.status === 'dispatched') { %>
+      <h2>已分派：<%= order.driver_name %></h2>
+      <form method="post" action="/orders/<%= order.id %>/dispatch" style="margin-bottom:18px">
+        <label>改派给</label>
+        <div class="form-row">
+          <div><select name="driver_id" required>
+            <% drivers.forEach(d => { %>
+              <option value="<%= d.id %>" <%= d.id===order.driver_id?'selected':'' %>><%= d.name %></option>
+            <% }) %>
+          </select></div>
+          <div style="flex:0 0 auto"><button class="btn secondary" type="submit" <%= operator?'':'disabled' %>>改派</button></div>
+        </div>
+      </form>
+
+      <h2>录送达回执</h2>
+      <form method="post" action="/orders/<%= order.id %>/receipt" id="receiptForm">
+        <div class="form-row">
+          <div>
+            <label>收回空桶数</label>
+            <input name="empty_returned" id="emptyReturned" type="number" min="0" step="1" value="0">
+          </div>
+          <div>
+            <label>本次收现（元，默认全额）</label>
+            <input name="cash_collected" type="number" min="0" step="0.01" placeholder="留空=全额收清">
+          </div>
+        </div>
+        <div style="margin-top:10px">
+          <label>实际送达楼栋（与回单不符时改这里，自动标红）</label>
+          <input name="actual_building" id="actualBuilding" value="<%= order.customer_building %>" required>
+          <p class="muted" style="font-size:12px;margin:4px 0 0">门牌仍按客户地址，仅楼栋单独核对。</p>
+        </div>
+        <div style="margin-top:10px">
+          <label>备注</label>
+          <input name="remark" placeholder="选填">
+        </div>
+        <button type="submit" class="btn" <%= operator?'':'disabled' %>>录回执</button>
+        <% if (!operator) { %><p class="muted">请先在右上角选择操作人。</p><% } %>
+        <p class="muted" style="font-size:12px">同一订单只能录一张回执；重复提交会被拦下，不改任何数。</p>
+      </form>
+    <% } else if (order.status === 'delivered') { %>
+      <h2>送达回执 <span class="mono"><%= order.receipt.receipt_no %></span></h2>
+      <% if (order.receipt.order_building !== order.receipt.actual_building) { %>
+        <div class="flash warn">⚠ 楼栋不符：回单 <%= order.receipt.order_building %>，实际送达 <b><%= order.receipt.actual_building %></b></div>
+      <% } else { %>
+        <div class="flash ok">✓ 楼栋核对一致：<%= order.receipt.actual_building %></div>
+      <% } %>
+      <table>
+        <tr><th>实送桶数</th><td class="num"><%= order.receipt.delivered_qty %></td></tr>
+        <tr><th>收回空桶</th><td class="num"><%= order.receipt.empty_returned %></td></tr>
+        <tr><th>新押金桶</th><td class="num"><%= order.receipt.new_deposit_qty %> 个 · ¥<%= yuan(order.receipt.deposit_amount) %></td></tr>
+        <tr><th>本次收现</th><td class="num">¥<%= yuan(order.receipt.cash_collected) %></td></tr>
+        <tr><th>送达时间</th><td class="mono"><%= order.receipt.delivered_at %></td></tr>
+        <tr><th>录回执人</th><td><%= order.receipt.created_by %></td></tr>
+        <% if (order.receipt.remark) { %><tr><th>备注</th><td><%= order.receipt.remark %></td></tr><% } %>
+      </table>
+      <p class="muted" style="font-size:12px;margin-top:8px">回执不可重复录入、不可修改；如送错楼栋请在此页留痕后线下处置。</p>
+    <% } %>
+
+    <h2 style="margin-top:18px">操作留痕</h2>
+    <table>
+      <tr><th>开单</th><td><%= order.created_by %> · <span class="mono"><%= order.created_at %></span></td></tr>
+      <% if (order.assigned_at) { %>
+        <tr><th>分派</th><td><%= order.assigned_by %> 派给 <%= order.driver_name %> · <span class="mono"><%= order.assigned_at %></span></td></tr>
+      <% } %>
+      <% if (order.delivered_at) { %>
+        <tr><th>送达</th><td><span class="mono"><%= order.delivered_at %></span></td></tr>
+      <% } %>
+    </table>
+  </div>
+</div>
+<%- include('../partials/footer') %>

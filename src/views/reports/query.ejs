@@ -1,0 +1,46 @@
+<%- include('../partials/header', { title: '电话查单' }) %>
+<div class="page-head"><h1>客户报电话查单</h1></div>
+<div class="card filters">
+  <form method="get">
+    <div style="min-width:240px">
+      <label>客户电话</label>
+      <input name="phone" value="<%= phone %>" placeholder="如 13800000001" required>
+    </div>
+    <div style="flex:0 0 auto"><button class="btn">查询历史订单和桶数</button></div>
+  </form>
+</div>
+
+<% if (result) { %>
+  <% if (!result.customers.length) { %>
+    <div class="flash err">没查到电话 <%= result.phone %> 对应的客户。</div>
+  <% } %>
+  <% result.customers.forEach(c => { %>
+    <div class="card">
+      <h2><%= c.name %>（<%= c.code %>）· <%= c.building %> <%= c.room %> · <%= c.phone %></h2>
+      <div class="grid grid-4">
+        <div class="kpi"><div class="label">历史订单</div><div class="value" style="font-size:22px"><%= c.totals.order_count %></div></div>
+        <div class="kpi"><div class="label">已送桶数</div><div class="value" style="font-size:22px"><%= c.totals.delivered_qty %></div>
+          <div class="sub">押金桶 <%= c.totals.deposit_qty %> · 自有 <%= c.totals.own_qty %></div></div>
+        <div class="kpi"><div class="label">在押桶数</div><div class="value" style="font-size:22px"><%= c.depositBalance.qty %></div></div>
+        <div class="kpi"><div class="label">押金余额</div><div class="value" style="font-size:22px;color:#1c64f2">¥<%= yuan(c.depositBalance.amount) %></div></div>
+      </div>
+      <table style="margin-top:10px">
+        <tr><th>单号</th><th>日期</th><th class="num">桶数</th><th class="num">押金桶/自有</th><th class="num">金额</th><th class="num">未收</th><th>状态</th><th>师傅</th></tr>
+        <% c.orders.forEach(o => { %>
+          <tr>
+            <td class="mono"><a href="/orders/<%= o.id %>"><%= o.order_no %></a></td>
+            <td class="mono"><%= o.order_date %></td>
+            <td class="num"><%= o.total_qty %></td>
+            <td class="num"><%= o.deposit_qty %> / <%= o.own_qty %></td>
+            <td class="num">¥<%= yuan(o.total_amount) %></td>
+            <td class="num">¥<%= yuan(o.total_amount - o.paid_amount) %></td>
+            <td><span class="badge <%= o.status %>"><%= statusText[o.status] %></span></td>
+            <td><%= o.driver_name || '—' %></td>
+          </tr>
+        <% }) %>
+      </table>
+      <p style="margin-top:8px"><a href="/customers/<%= c.id %>#deposit">查看该客户押金台账 →</a></p>
+    </div>
+  <% }) %>
+<% } %>
+<%- include('../partials/footer') %>

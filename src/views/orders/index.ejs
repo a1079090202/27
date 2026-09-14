@@ -1,0 +1,67 @@
+<%- include('../partials/header', { title: '订单' }) %>
+<div class="page-head">
+  <h1>订单</h1>
+  <a class="btn" href="/orders/new">＋ 开新单</a>
+</div>
+
+<div class="card filters">
+  <form method="get">
+    <div>
+      <label>状态</label>
+      <select name="status">
+        <option value="">全部</option>
+        <option value="placed" <%= filter.status==='placed'?'selected':'' %>>待分派</option>
+        <option value="dispatched" <%= filter.status==='dispatched'?'selected':'' %>>已分派</option>
+        <option value="delivered" <%= filter.status==='delivered'?'selected':'' %>>已送达</option>
+      </select>
+    </div>
+    <div>
+      <label>师傅</label>
+      <select name="driver_id">
+        <option value="">全部</option>
+        <% drivers.forEach(d => { %>
+          <option value="<%= d.id %>" <%= String(filter.driverId)===String(d.id)?'selected':'' %>><%= d.name %></option>
+        <% }) %>
+      </select>
+    </div>
+    <div>
+      <label>日期</label>
+      <input type="date" name="date" value="<%= filter.date %>">
+    </div>
+    <div style="display:flex;align-items:center;gap:6px;min-width:0;flex:0 0 auto;padding-bottom:8px">
+      <input type="checkbox" name="overdue" value="1" id="od" <%= filter.overdue?'checked':'' %> style="width:auto">
+      <label for="od" style="margin:0">只看超24小时</label>
+    </div>
+    <div style="flex:0 0 auto"><button class="btn" type="submit">筛选</button></div>
+  </form>
+</div>
+
+<div class="card">
+  <% if (!orders.length) { %><p class="muted">没有符合条件的订单。</p><% } else { %>
+  <table>
+    <tr>
+      <th>单号</th><th>日期</th><th>客户</th><th>楼栋门牌</th>
+      <th class="num">总桶数</th><th class="num">押金桶/自有</th>
+      <th class="num">水款</th><th class="num">押金</th><th class="num">已收/未收</th>
+      <th>师傅</th><th>状态</th><th></th>
+    </tr>
+    <% orders.forEach(o => { %>
+      <tr>
+        <td class="mono"><a href="/orders/<%= o.id %>"><%= o.order_no %></a></td>
+        <td class="mono"><%= o.order_date %></td>
+        <td><%= o.customer_name %></td>
+        <td><%= o.customer_building %> <%= o.customer_room %></td>
+        <td class="num"><%= o.total_qty %></td>
+        <td class="num"><%= o.deposit_qty %> / <%= o.own_qty %></td>
+        <td class="num">¥<%= yuan(o.water_amount) %></td>
+        <td class="num">¥<%= yuan(o.deposit_amount) %></td>
+        <td class="num">¥<%= yuan(o.paid_amount) %> / <span class="<%= o.total_amount-o.paid_amount>0?'badge warn':'' %>">¥<%= yuan(o.total_amount-o.paid_amount) %></span></td>
+        <td><%= o.driver_name || '—' %></td>
+        <td><span class="badge <%= o.status %>"><%= statusText[o.status] %></span></td>
+        <td><a class="btn sm secondary" href="/orders/<%= o.id %>">打开</a></td>
+      </tr>
+    <% }) %>
+  </table>
+  <% } %>
+</div>
+<%- include('../partials/footer') %>

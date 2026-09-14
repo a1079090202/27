@@ -1,0 +1,92 @@
+<%- include('partials/header', { title: '今日看板' }) %>
+
+<div class="page-head">
+  <h1>今日看板 · <%= today %></h1>
+  <a class="btn" href="/orders/new">＋ 开新单</a>
+</div>
+
+<div class="grid grid-4">
+  <div class="card kpi cash">
+    <div class="label">今日现金净流入</div>
+    <div class="value">¥<%= yuan(report.cash.net) %></div>
+    <div class="sub">收回 ¥<%= yuan(report.cash.in) %> − 退押 ¥<%= yuan(report.cash.out) %></div>
+  </div>
+  <div class="card kpi unpaid">
+    <div class="label">今日新增未收款</div>
+    <div class="value">¥<%= yuan(report.unpaid.todayAmount) %></div>
+    <div class="sub"><%= report.unpaid.todayOrders %> 单挂账 · 累计 ¥<%= yuan(report.unpaid.totalAmount) %></div>
+  </div>
+  <div class="card kpi deposit">
+    <div class="label">今日押金净变动</div>
+    <div class="value">¥<%= yuan(report.deposit.net) %></div>
+    <div class="sub">收 <%= report.deposit.collectedQty %> 桶 / 退 <%= report.deposit.refundedQty %> 桶</div>
+  </div>
+  <div class="card kpi">
+    <div class="label">押金总余额（全站客户）</div>
+    <div class="value">¥<%= yuan(report.deposit.endAmount) %></div>
+    <div class="sub"><%= report.deposit.endQty %> 个押金桶在站外</div>
+  </div>
+</div>
+
+<% if (overdue.length) { %>
+<div class="card">
+  <h2>⏰ 超过 24 小时未录回执（催单 <%= overdue.length %>）</h2>
+  <table>
+    <tr><th>单号</th><th>客户</th><th>楼栋门牌</th><th>电话</th><th>师傅</th><th>状态</th><th>开单/分派时间</th><th></th></tr>
+    <% overdue.forEach(o => { %>
+      <tr>
+        <td class="mono"><%= o.order_no %></td>
+        <td><%= o.customer_name %></td>
+        <td><%= o.customer_building %> <%= o.customer_room %></td>
+        <td><%= o.customer_phone %></td>
+        <td><%= o.driver_name || '未分派' %></td>
+        <td><span class="badge <%= o.status %>"><%= statusText[o.status] %></span></td>
+        <td class="mono"><%= o.assigned_at || o.created_at %> <span class="badge warn">超24h</span></td>
+        <td><a class="btn sm" href="/orders/<%= o.id %>">处理</a></td>
+      </tr>
+    <% }) %>
+  </table>
+</div>
+<% } %>
+
+<div class="grid grid-2">
+  <div class="card">
+    <h2>今日回执（<%= report.receipts.length %>）</h2>
+    <% if (!report.receipts.length) { %><p class="muted">今天还没有回执</p><% } else { %>
+    <table>
+      <tr><th>回执号</th><th>客户</th><th class="num">实送</th><th class="num">收回空桶</th><th class="num">现金</th><th>楼栋核对</th></tr>
+      <% report.receipts.forEach(r => { %>
+        <tr class="<%= r.order_building !== r.actual_building ? 'wrong-building' : '' %>">
+          <td class="mono"><%= r.receipt_no %></td>
+          <td><%= r.customer_name %></td>
+          <td class="num"><%= r.delivered_qty %></td>
+          <td class="num"><%= r.empty_returned %></td>
+          <td class="num">¥<%= yuan(r.cash_collected) %></td>
+          <td>
+            <% if (r.order_building === r.actual_building) { %>
+              <span class="badge ok">✓ <%= r.actual_building %></span>
+            <% } else { %>
+              <span class="badge warn">回单 <%= r.order_building %> → 实送 <%= r.actual_building %></span>
+            <% } %>
+          </td>
+        </tr>
+      <% }) %>
+    </table>
+    <% } %>
+    <p style="margin-top:10px"><a href="/daily?date=<%= today %>">查看今日日结 →</a></p>
+  </div>
+  <div class="card">
+    <h2>今日押金流水</h2>
+    <% const both = report.receipts.length; %>
+    <ul class="plain">
+      <li>新收押金：<b>¥<%= yuan(report.deposit.collected) %></b>（<%= report.deposit.collectedQty %> 桶）</li>
+      <li>退桶退款：<b>¥<%= yuan(report.deposit.refunded) %></b>（<%= report.deposit.refundedQty %> 桶）</li>
+    </ul>
+    <p class="muted" style="font-size:12px;margin-top:8px">
+      日结自动对账：<% if (report.allPass) { %><span class="badge ok">4 项全部平衡 ✓</span><% } else { %><span class="badge warn">有不平项，立即查日结页</span><% } %>
+    </p>
+    <p><a href="/deposits?date=<%= today %>">打开押金台账 →</a></p>
+  </div>
+</div>
+
+<%- include('partials/footer') %>
