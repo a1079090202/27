@@ -39,6 +39,7 @@ const CUSTOMERS = [
   { code: 'S010', name: '郑洁', phone: '13800000010', building: 'A栋', room: '1-404' },
   { code: 'S011', name: '何军', phone: '13800000011', building: 'B栋', room: '2-602' },
   { code: 'S012', name: '郭静', phone: '13800000012', building: 'C栋', room: '3-404' },
+  { code: 'S013', name: '王秀兰', phone: '13800000013', building: '幸福里3栋', room: '501' }, // 王姐：对账单演示户
 ];
 
 function resetDb() {
@@ -130,6 +131,54 @@ function runSeed({ reset = false } = {}) {
     remark: '客户搬家退 1 桶',
     operator: CLERK,
     occurredAt: `${dateOffset(-4)} 15:20:00`,
+  });
+
+  // —— 王姐（S013，幸福里3栋）押金全史：4 收 2 退 + 置换链，对账单/月度结算演示户 ——
+  // 日期固定在 2026-09 上旬（在一周订单窗口之前，不影响今日日结）：
+  //   收① 2019 老收据 3 桶 @30 元；收②③④ 2026-09 回执各新收 1 桶 @50 元；
+  //   退①② 共 3 桶全部沿置换链退出、按 2019 年 30 元/桶退；
+  //   置换 3 笔（占用 5 桶次），期末：在保 3 桶/150 元 = 直接 1 + 置换占用 2。
+  depositService.migrateCollect({
+    customerId: customers.S013.id,
+    qty: 3,
+    unitAmount: 3000,
+    refNo: '2019-S-1077',
+    occurredAt: '2019-06-20 09:30:00',
+    operator: CLERK,
+    remark: '2019 年纸质老收据补录，3 个空桶押金 @30 元',
+  });
+  const wangPlans = [
+    // [日期, 押金桶数, 收回空桶, 说明]
+    ['2026-09-01', 4, 0], // 置换 3（2019 老收据全占用）+ 新收 1（收②）
+    ['2026-09-03', 3, 1], // 置换 1（收②）+ 空桶抵 1 + 新收 1（收③）
+    ['2026-09-08', 2, 0], // 置换 1（收③）+ 新收 1（收④）
+  ];
+  for (const [date, depQty, empty] of wangPlans) {
+    const order = orderService.createOrder({
+      customerId: customers.S013.id,
+      items: [{ productId: pid.nongfu, bucketType: 'deposit', qty: depQty }],
+      operator: CLERK,
+      orderDate: date,
+    });
+    orderService.dispatch({ orderId: order.id, driverId: did.wang, operator: CLERK });
+    const water = depQty * 2000;
+    orderService.createReceipt({
+      orderId: order.id,
+      emptyReturned: empty,
+      cashCollected: water + 5000, // 每单恰好新收 1 桶押金 @50 元，货到款清
+      operator: DRIVERS[0].name,
+      deliveredAt: `${date} 09:40:00`,
+    });
+  }
+  depositService.refund({ // 退①：2 桶，沿置换链退出，按 2019 年 30 元/桶
+    customerId: customers.S013.id, qty: 2, refNo: 'T-2026-0902',
+    remark: '王姐持 2019 老收据退 2 桶', operator: CLERK,
+    occurredAt: '2026-09-02 16:40:00',
+  });
+  depositService.refund({ // 退②：1 桶，同上（置换 #1 的最后一个桶）
+    customerId: customers.S013.id, qty: 1, refNo: 'T-2026-0905',
+    remark: '王姐再退 1 桶', operator: CLERK,
+    occurredAt: '2026-09-05 11:30:00',
   });
 
   // 一单超过 24 小时未录回执：陈强，3 天前开单、2 天前分派给李大山，至今未送达

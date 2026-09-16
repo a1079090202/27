@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <title>押金对账单 · <%= customer.name %>（<%= customer.code %>）</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; padding: 24px; color: #111; font: 13px/1.55 "PingFang SC", "Microsoft YaHei", sans-serif; }
+    h1 { font-size: 19px; margin: 0; }
+    .head { display: flex; justify-content: space-between; align-items: flex-end; border-bottom: 2px solid #111; padding-bottom: 8px; margin-bottom: 10px; }
+    .meta { color: #444; font-size: 12px; margin: 2px 0; }
+    table { width: 100%; border-collapse: collapse; margin-top: 8px; }
+    th, td { border: 1px solid #999; padding: 5px 7px; text-align: left; vertical-align: top; font-size: 12px; }
+    th { background: #eee; }
+    .num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+    .total td { font-weight: 700; border-top: 2px solid #111; background: #f5f5f5; }
+    .sum { display: flex; gap: 18px; margin: 10px 0; }
+    .sum > div { border: 1px solid #111; padding: 8px 12px; flex: 1; }
+    .sum .v { font-size: 18px; font-weight: 700; }
+    .sign { display: flex; gap: 24px; margin-top: 26px; }
+    .sign > div { flex: 1; border-top: 1px solid #111; padding-top: 4px; color: #333; }
+    .toolbar { margin-bottom: 12px; display: flex; gap: 8px; }
+    .toolbar button, .toolbar a { padding: 6px 14px; border: 1px solid #111; background: #fff; cursor: pointer; font-size: 13px; text-decoration: none; color: #111; }
+    .note { color: #555; font-size: 11px; margin-top: 6px; }
+    @media print { .toolbar { display: none; } body { padding: 0; } }
+  </style>
+</head>
+<body>
+  <div class="toolbar">
+    <button onclick="window.print()">🖨 打印 / 另存 PDF</button>
+    <a href="/customers/<%= customer.id %>/statement">返回对账单</a>
+  </div>
+
+  <div class="head">
+    <div>
+      <h1>水站押金对账单</h1>
+      <div class="meta">客户：<b><%= customer.name %></b>（水牌号 <%= customer.code %>） · <%= customer.building %> <%= customer.room %> · 电话 <%= customer.phone %></div>
+    </div>
+    <div class="meta" style="text-align:right">
+      出具时间：<%= generatedAt %><br>
+      经办：<%= operator || '—' %>
+    </div>
+  </div>
+
+  <div class="sum">
+    <div>当前在保桶数<div class="v"><%= summary.qty %> 桶</div></div>
+    <div>押金余额<div class="v">¥<%= yuan(summary.amount) %></div></div>
+    <div>其中：置换占用中<div class="v"><%= summary.occupiedQty %> 桶</div></div>
+    <div>其中：直接在保<div class="v"><%= summary.directQty %> 桶</div></div>
+  </div>
+  <div class="note">在保桶数 = 直接在保 + 置换占用中。「担保置换」不退钱：旧桶押金担保转到新桶；被置换占用的桶退桶时仍按原始收据标准退钱。</div>
+
+  <table>
+    <tr>
+      <th>时间</th><th>项目</th><th>单据</th><th class="num">桶数</th><th class="num">单桶标准</th><th class="num">金额（元）</th>
+      <th>说明 / 溯源</th><th class="num">在保结存</th><th class="num">占用结存</th><th class="num">余额结存（元）</th>
+    </tr>
+    <% events.forEach(ev => { %>
+      <tr>
+        <td><%= ev.occurredAt %></td>
+        <% if (ev.kind === 'collect') { %>
+          <td>收押金</td><td><%= ev.refNo || '—' %></td>
+          <td class="num">+<%= ev.qty %></td><td class="num"><%= yuan(ev.unitAmount) %></td><td class="num">+<%= yuan(ev.amount) %></td>
+          <td><%= ev.sourceType === 'migration' ? '历史补录（老收据入账）' : '送达回执新收押金' %><% if (ev.remark) { %>（<%= ev.remark %>）<% } %></td>
+        <% } else if (ev.kind === 'refund') { %>
+          <td>退押金</td><td><%= ev.refNo || '—' %></td>
+          <td class="num">−<%= ev.qty %></td><td class="num"><%= yuan(ev.unitAmount) %></td><td class="num">−<%= yuan(ev.amount) %></td>
+          <td>
+            <% ev.allocations.forEach(a => { %>
+              <div>退 <%= a.qty %> 桶 ← <%= a.collect_at.slice(0,10) %> 收据「<%= a.collect_ref_no || '无号' %>」@<%= yuan(a.unit_amount) %>/桶<% if (a.via_offset_id) { %>（经 <%= (a.via_at || '').slice(0,10) %> 担保置换退出<% if (a.via_receipt_no) { %>，置换回执 <%= a.via_receipt_no %><% } %>）<% } %></div>
+            <% }) %>
+          </td>
+        <% } else if (ev.kind === 'offset') { %>
+          <td>担保置换</td><td><%= ev.receiptNo %></td>
+          <td class="num">占用 <%= ev.qty %></td><td class="num">—</td><td class="num">0.00</td>
+          <td>旧桶押金转保新桶，不退钱。担保来自：
+            <% ev.allocations.forEach(a => { %>
+              <div><%= a.qty %> 桶 ← <%= a.collect_at.slice(0,10) %> 收据「<%= a.collect_ref_no || '无号' %>」@<%= yuan(a.unit_amount) %>/桶</div>
+            <% }) %>
+          </td>
+        <% } else { %>
+          <td>空桶抵扣</td><td><%= ev.receiptNo %></td>
+          <td class="num">抵 <%= ev.qty %></td><td class="num">—</td><td class="num">0.00</td>
+          <td>当场交回空桶 <%= ev.qty %> 个，抵本次新桶押金，未收押金</td>
+        <% } %>
+        <td class="num"><%= ev.runQty %></td>
+        <td class="num"><%= ev.runOccupied %></td>
+        <td class="num"><%= yuan(ev.runAmount) %></td>
+      </tr>
+    <% }) %>
+    <tr class="total">
+      <td colspan="7">当前合计（截至 <%= generatedAt %>）</td>
+      <td class="num"><%= summary.qty %> 桶</td>
+      <td class="num"><%= summary.occupiedQty %> 桶</td>
+      <td class="num"><%= yuan(summary.amount) %></td>
+    </tr>
+  </table>
+
+  <% if (openOffsets.length) { %>
+  <table>
+    <tr><th colspan="4">置换占用中（还没退的桶）</th></tr>
+    <tr><th>置换时间</th><th>回执</th><th class="num">还占着（桶）</th><th>担保来源</th></tr>
+    <% openOffsets.forEach(o => { %>
+      <tr>
+        <td><%= o.occurred_at %></td>
+        <td><%= o.receipt_no %></td>
+        <td class="num"><%= o.remaining_qty %></td>
+        <td><% o.allocations.forEach(a => { %><div><%= a.qty %> 桶 ← <%= a.collect_at.slice(0,10) %> 收据「<%= a.collect_ref_no || '无号' %>」@<%= yuan(a.unit_amount) %>/桶</div><% }) %></td>
+      </tr>
+    <% }) %>
+  </table>
+  <% } %>
+
+  <div class="note">本对账单由水站押金台账自动生成，台账只增不改、每笔可溯源；金额单位：元。如有疑问请携带本单与原始收据到站内核对。</div>
+
+  <div class="sign">
+    <div>客户签字</div>
+    <div>水站经办</div>
+    <div>日期</div>
+  </div>
+</body>
+</html>

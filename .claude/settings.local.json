@@ -22,7 +22,13 @@
       "Bash(kill 4704)",
       "Bash(rm -f /tmp/test-water.db*)",
       "Bash(DB_FILE=/tmp/test-water.db node scripts/seed.js --reset)",
-      "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" http://localhost:3999/orders)"
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" http://localhost:3999/orders)",
+      "Bash(git -C /workspace log --oneline -20)",
+      "Bash(git -C /workspace status)",
+      "Bash(curl -s http://127.0.0.1:3100/customers/13/statement)",
+      "Bash(curl *)",
+      "Bash(python3 *)",
+      "Bash(git -C /workspace diff --stat)"
     ]
   }
 }

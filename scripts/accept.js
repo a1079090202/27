@@ -8,6 +8,8 @@ const depositModel = require('../src/models/depositModel');
 const bucketModel = require('../src/models/bucketModel');
 const reportService = require('../src/services/reportService');
 const closeService = require('../src/services/closeService');
+const statementService = require('../src/services/statementService');
+const customerModel = require('../src/models/customerModel');
 const { DuplicateReceiptError, BusinessError } = require('../src/services/errors');
 const { fenToYuan } = require('../src/utils/money');
 
@@ -68,12 +70,17 @@ check('A 旧押金桶抵扣 1 个、新押金 1 个',
 check('A 三段拆分：账上余额抵扣 1、当场空桶抵扣 0、新押 1',
   rA.settlement.coverBalanceQty === 1 && rA.settlement.coverEmptyQty === 0,
   `账上${rA.settlement.coverBalanceQty}/空桶${rA.settlement.coverEmptyQty}/新押${rA.settlement.newDepositQty}`);
-// 抵扣必须落地：deposit_offset + FIFO 钉到历史收款批次（周敏一周前 R20260908 收据）
+// 抵扣必须落地：deposit_offset + FIFO 钉到历史收款批次（周敏一周前那张回执的收款）
+// 期望收据号从台账动态取（样例库按运行日滚动生成，硬编码回执号会随日期漂移）
+const zhouFirstRef = db.prepare(`
+  SELECT ref_no FROM deposit_ledger
+  WHERE customer_id = ? AND direction = 'collect' ORDER BY id LIMIT 1
+`).get(custByCode.S001.id).ref_no;
 const aTrace = depositModel.offsetTraceByReceipt(rA.receipt.id);
 check('A 抵扣落地台账且逐桶钉到历史收据',
   aTrace.length === 1 && aTrace[0].qty === 1 &&
   aTrace[0].allocations.length === 1 && aTrace[0].allocations[0].qty === 1 &&
-  aTrace[0].allocations[0].collect_ref_no === 'R20260908-001',
+  aTrace[0].allocations[0].collect_ref_no === zhouFirstRef,
   aTrace.map((o) => o.allocations.map((a) => `${a.collect_ref_no}×${a.qty}`)).join('；'));
 check('A 抵扣是担保置换：周敏可退押金余额仍为 2 桶/100 元',
   depositModel.getBalance(custByCode.S001.id).qty === 2);
@@ -152,8 +159,8 @@ const aOffsetId = db.prepare('SELECT id FROM deposit_offset WHERE receipt_id = ?
 check('退款沿担保置换链退出（via_offset_id 钉到 A 单置换）',
   src2.length === 1 && src2[0].via_offset_id === aOffsetId,
   `via_offset_id=${src2[0] && src2[0].via_offset_id}`);
-check('FIFO 钱仍溯源最早收款 R20260908-001（不是今天新收的）',
-  src2.length === 1 && src2[0].collect_ref_no === 'R20260908-001',
+check('FIFO 钱仍溯源最早收款（' + zhouFirstRef + '，不是今天新收的）',
+  src2.length === 1 && src2[0].collect_ref_no === zhouFirstRef,
   `来源收据 ${src2[0] && src2[0].collect_ref_no}（${src2[0] && src2[0].collect_at.slice(0, 10)}）`);
 
 // 5.3 超额退桶必须拒
@@ -390,10 +397,111 @@ const overdue = orderService.list({ overdue: true });
 check('陈强的单在催单列表里', overdue.some((o) => o.customer_code === 'S004'),
   '催单：' + overdue.map((o) => `${o.order_no}/${o.customer_name}`).join(' '));
 
+// 11. 王姐对账单：4 收 2 退 + 置换链一笔不落，期末三数分清「在保 / 置换占用」
+line('11. 王姐（S013，幸福里3栋）客户对账单');
+const WJ = custByCode.S013.id;
+const stmt = statementService.customerStatement(WJ);
+const KIND_LABEL = { collect: '收押金', refund: '退押金', offset: '担保置换', empty_cover: '空桶抵扣' };
+for (const ev of stmt.events) {
+  const qty = ev.kind === 'collect' ? `+${ev.qty}` : ev.kind === 'refund' ? `−${ev.qty}`
+    : ev.kind === 'offset' ? `占用${ev.qty}` : `抵${ev.qty}`;
+  const amt = ev.amount !== undefined ? ` ¥${y(ev.amount)}` : '';
+  console.log(`  ${ev.occurredAt}  ${KIND_LABEL[ev.kind]}  ${qty} 桶${amt}  → 在保 ${ev.runQty} / 占用 ${ev.runOccupied} / 余额 ¥${y(ev.runAmount)}`);
+}
+const kinds = stmt.events.map((e) => e.kind);
+check('对账单 10 条事件：4 收 + 2 退 + 3 置换 + 1 空桶抵扣，一笔不落',
+  kinds.filter((k) => k === 'collect').length === 4 &&
+  kinds.filter((k) => k === 'refund').length === 2 &&
+  kinds.filter((k) => k === 'offset').length === 3 &&
+  kinds.filter((k) => k === 'empty_cover').length === 1, kinds.join(','));
+const c2019 = stmt.events.find((e) => e.kind === 'collect' && e.sourceType === 'migration');
+check('2019 老收据收 3 桶 @30.00（收据 2019-S-1077）',
+  c2019 && c2019.qty === 3 && c2019.unitAmount === 3000 && c2019.refNo === '2019-S-1077');
+const rfEvents = stmt.events.filter((e) => e.kind === 'refund');
+check('两笔退桶都按 2019 年 30 元/桶显示（不是现价 50）',
+  rfEvents.length === 2 && rfEvents.every((e) => e.unitAmount === 3000),
+  rfEvents.map((e) => `${e.qty}桶@¥${y(e.unitAmount)}`).join('；'));
+check('两笔退款合计 90.00（60+30）', rfEvents.reduce((s, e) => s + e.amount, 0) === 9000);
+const off1 = stmt.events.filter((e) => e.kind === 'offset')[0];
+check('置换 #1 的担保来自 2019 老收据（3 桶）',
+  off1.allocations.length === 1 && off1.allocations[0].collect_ref_no === '2019-S-1077' && off1.allocations[0].qty === 3);
+check('两笔退款每笔都沿置换链退出（via 置换单）',
+  rfEvents.every((e) => e.allocations.length > 0 && e.allocations.every((a) => a.via_offset_id !== null)));
+check('期末三数：在保 3 桶 / 押金余额 150.00 / 置换占用 2 桶',
+  stmt.summary.qty === 3 && stmt.summary.amount === 15000 && stmt.summary.occupiedQty === 2,
+  `${stmt.summary.qty} 桶 / ¥${y(stmt.summary.amount)} / 占用 ${stmt.summary.occupiedQty}`);
+check('在保 3 = 直接在保 1 + 置换占用 2（两类桶数勾稽，对不上即算错）',
+  stmt.summary.directQty === 1 && stmt.summary.qty === stmt.summary.directQty + stmt.summary.occupiedQty);
+check('对账单全部勾稽项通过', stmt.allPass, stmt.checks.filter((c) => !c.pass).map((c) => c.name).join('；'));
+check('置换占用明细 2 笔未退出（各占 1 桶）',
+  stmt.openOffsets.length === 2 && stmt.openOffsets.every((o) => o.remaining_qty === 1));
+const lastEv = stmt.events[stmt.events.length - 1];
+check('时间线末行结存 = 期末三数（3 桶 / 占用 2 / 150.00）',
+  lastEv.runQty === 3 && lastEv.runOccupied === 2 && lastEv.runAmount === 15000);
+
+// 12. 月度结算页：9 月发生额与月末在保，期末数与 9 月 30 日日结一模一样
+line('12. 月度结算页（2026-09，尚未封账时）');
+const m9 = statementService.monthlySettlement('2026-09');
+check('9 月月度对平全部通过', m9.allPass, m9.discrepancies.join('；'));
+const d930 = reportService.daily('2026-09-30');
+check('9 月期末在保桶数 = 9 月 30 日日结在保桶数',
+  m9.closingActual.qty === d930.deposit.endQty, `${m9.closingActual.qty} 桶`);
+check('9 月期末押金余额 = 9 月 30 日日结押金余额',
+  m9.closingActual.amount === d930.deposit.endAmount, `¥${y(m9.closingActual.amount)}`);
+const wjLines = m9.lines.filter((l) => l.customer_id === WJ);
+check('9 月台账逐笔含王姐 5 行（3 收 2 退）',
+  wjLines.filter((l) => l.direction === 'collect').length === 3 &&
+  wjLines.filter((l) => l.direction === 'refund').length === 2);
+check('9 月置换逐笔含王姐 3 笔', m9.offsets.filter((o) => o.customer_id === WJ).length === 3);
+check('9 月置换占用勾稽：期初 + 当月置换 − 当月退出 = 期末',
+  m9.offset.beginQty + m9.offset.qty - m9.offset.exitedQty === m9.offset.endQty,
+  `${m9.offset.beginQty} + ${m9.offset.qty} − ${m9.offset.exitedQty} = ${m9.offset.endQty}`);
+check('未封账的 9 月状态为 open（不标死）', m9.seal.status === 'open');
+
+// 13. 硬封账月份：从 2026-08-01 逐日封到昨天 → 8 月整月封死标死，补录明确拒绝
+line('13. 硬封账月份：标死 + 补录拒绝');
+const yesterday = closeService.dayAdd(todayStr, -1);
+let closeD = '2026-08-01';
+let closedCount = 0;
+while (closeD <= yesterday) {
+  closeService.closeDay(closeD, OPERATOR);
+  closedCount += 1;
+  closeD = closeService.dayAdd(closeD, 1);
+}
+check(`封账链 2026-08-01 → ${yesterday} 连续封死（${closedCount} 天，含零业务日）`,
+  closedCount >= 30 && closeService.buildView(todayStr).latestCloseDate === yesterday);
+const m8 = statementService.monthlySettlement('2026-08');
+check('8 月整月封死：月度页状态 sealed（标死）', m8.seal.status === 'sealed');
+check('8 月 31 天全部有封账快照', m8.seal.closedDays === 31, `${m8.seal.closedDays} 天`);
+check('8 月封账快照与当前重算一致（无漂移）', m8.allPass, m8.discrepancies.join('；'));
+const m9Sealed = statementService.monthlySettlement('2026-09');
+check('9 月部分封账（与整月封死不是一个样）', m9Sealed.seal.status === 'partial',
+  `封至 ${m9Sealed.seal.latestCloseDate}`);
+let augRefundBlocked = false, augRefundMsg = '';
+try {
+  depositService.refund({ customerId: WJ, qty: 1, operator: OPERATOR, occurredAt: '2026-08-15 10:00:00' });
+} catch (e) { augRefundBlocked = /已封账/.test(e.message); augRefundMsg = e.message; }
+check('补录 8 月退桶被明确拒绝（已封账）', augRefundBlocked, augRefundMsg.slice(0, 46));
+let augReceiptBlocked = false, augReceiptMsg = '';
+try {
+  const oX = orderService.createOrder({ customerId: custByCode.S002.id, operator: OPERATOR,
+    items: [{ productId: NONG_FU, bucketType: 'own', qty: 1 }] });
+  orderService.dispatch({ orderId: oX.id, driverId: LI, operator: OPERATOR });
+  orderService.createReceipt({ orderId: oX.id, emptyReturned: 0, cashCollected: 2000,
+    operator: '李大山', deliveredAt: '2026-08-15 10:00:00' });
+} catch (e) { augReceiptBlocked = /已封账/.test(e.message); augReceiptMsg = e.message; }
+check('补录 8 月回执被明确拒绝（已封账）', augReceiptBlocked, augReceiptMsg.slice(0, 46));
+let sepRefundBlocked = false;
+try {
+  depositService.refund({ customerId: WJ, qty: 1, operator: OPERATOR, occurredAt: '2026-09-04 10:00:00' });
+} catch (e) { sepRefundBlocked = /已封账/.test(e.message); }
+check('补录 9 月已封区间（9-04）退桶同样被拒', sepRefundBlocked);
+
 // 10. 硬封账：全平才能封；封后时间闸拦截补录；快照不可变；漂移可被发现
+// （注意：第 13 节已把 2026-08-01 ～ 昨天逐日封死，本节把今天接到封账链上）
 line('10. 封账与封账后管控');
 const closeViewBefore = closeService.buildView(todayStr);
-check('封账前今日可封（首封锚点）且对账全平', closeViewBefore.canClose && repFinal.allPass);
+check('封账前今日可封（封账链下一日）且对账全平', closeViewBefore.canClose && repFinal.allPass);
 const closed = closeService.closeDay(todayStr, OPERATOR);
 check('今日封账成功并固化 allPass 快照', !!closed.close && closed.close.all_pass === 1);
 let repeatCloseBlocked = false;
@@ -449,6 +557,43 @@ let futureBlocked = false;
 try { closeService.closeDay(closeService.dayAdd(todayStr, 1), OPERATOR); }
 catch (e) { futureBlocked = /未来|连续/.test(e.message); }
 check('封未来日期被拒', futureBlocked);
+
+// 14. 月度对不平必须点名差在哪一笔；封账后补录在月度页现形
+line('14. 月度对平：对不平点名到具体台账行');
+// 封账后补录探针（第 10 节 LATE-AUDIT 落在今天）→ 9 月月度页必须点名封账日
+const m9After = statementService.monthlySettlement('2026-09');
+check('封账后补录在 9 月月度页现形（点名封账日 ' + todayStr + '）',
+  m9After.discrepancies.some((d) => d.startsWith('封账日') && d.includes(todayStr)),
+  m9After.discrepancies.filter((d) => d.startsWith('封账日')).join('；'));
+// 注入两笔脏数据（直接 SQL 模拟旧库脏行/绕过服务层改库）：放在 2099-01，不污染真实月份
+const probe = customerModel.create({ code: 'Z999', name: '对账探针', phone: '13900000999',
+  building: '测试栋', room: '0-000', createdBy: OPERATOR });
+const bad1 = db.prepare(`
+  INSERT INTO deposit_ledger (customer_id, direction, qty, unit_amount, amount,
+    balance_qty, balance_amount, source_type, occurred_at, created_by, created_at, remark)
+  VALUES (?, 'collect', 2, 5000, 9999, 2, 9999, 'migration', '2099-01-10 10:00:00', ?, '2099-01-10 10:00:00', '探针：金额不符')
+`).run(probe.id, OPERATOR);
+const bad2 = db.prepare(`
+  INSERT INTO deposit_ledger (customer_id, direction, qty, unit_amount, amount,
+    balance_qty, balance_amount, source_type, occurred_at, created_by, created_at, remark)
+  VALUES (?, 'refund', 1, 5000, 5000, 1, 4999, 'manual_refund', '2099-01-20 10:00:00', ?, '2099-01-20 10:00:00', '探针：钉源缺失')
+`).run(probe.id, OPERATOR);
+const badMonth = statementService.monthlySettlement('2099-01');
+check('2099-01 月度对不平被查出（不是笼统报不平衡）', !badMonth.allPass);
+check(`点名金额不符那一笔（台账 #${bad1.lastInsertRowid}）`,
+  badMonth.discrepancies.some((d) => d.includes(`台账 #${bad1.lastInsertRowid}`) && d.includes('≠')),
+  badMonth.discrepancies.find((d) => d.includes(`台账 #${bad1.lastInsertRowid}`)));
+check(`点名退款钉源缺失那一笔（台账 #${bad2.lastInsertRowid}）`,
+  badMonth.discrepancies.some((d) => d.includes(`台账 #${bad2.lastInsertRowid}`) && d.includes('没有钉到原始收款')),
+  badMonth.discrepancies.find((d) => d.includes(`台账 #${bad2.lastInsertRowid}`)));
+check('「逐笔金额钉死」「退款逐笔钉源」两项标红，其余勾稽项仍平',
+  !badMonth.checks.find((c) => c.name.includes('金额钉死')).pass &&
+  !badMonth.checks.find((c) => c.name.includes('退款逐笔钉源')).pass &&
+  badMonth.checks.find((c) => c.name.includes('月末在保（金额）')).pass);
+check('2099-01 未封账状态 open（与封死的 8 月长得不一样）', badMonth.seal.status === 'open');
+// 探针脏行不影响真实月份：今日日结与 9 月月度勾稽（除封账漂移项外）仍平
+const repProbe = reportService.daily(todayStr);
+check('注入探针后今日日结 11 项仍全平（脏行隔离在未来月）', repProbe.allPass);
 
 console.log(`\n${fail === 0 ? '🎉 全部通过' : '⚠ 有失败项'}：${pass} 通过，${fail} 失败`);
 process.exit(fail === 0 ? 0 : 1);

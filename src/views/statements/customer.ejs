@@ -1,0 +1,133 @@
+<%- include('../partials/header', { title: '对账单 · ' + customer.name }) %>
+<div class="page-head">
+  <h1>客户对账单 · <%= customer.name %>
+    <span class="muted" style="font-size:14px"><%= customer.code %> · <%= customer.building %> <%= customer.room %> · <%= customer.phone %></span>
+  </h1>
+  <div style="display:flex;gap:8px">
+    <a class="btn" href="/customers/<%= customer.id %>/statement?print=1" target="_blank">🖨 打印版</a>
+    <a class="btn secondary" href="/customers/<%= customer.id %>">返回客户</a>
+  </div>
+</div>
+
+<div class="grid grid-4">
+  <div class="card kpi deposit"><div class="label">当前在保桶数</div><div class="value"><%= summary.qty %></div>
+    <div class="sub">押金还在站里压着的桶</div></div>
+  <div class="card kpi cash"><div class="label">押金余额</div><div class="value">¥<%= yuan(summary.amount) %></div>
+    <div class="sub">可退押金（台账滚存）</div></div>
+  <div class="card kpi"><div class="label">其中：置换占用中</div><div class="value"><%= summary.occupiedQty %></div>
+    <div class="sub">担保已转到新桶、还没退的桶</div></div>
+  <div class="card kpi"><div class="label">其中：直接在保</div><div class="value"><%= summary.directQty %></div>
+    <div class="sub">没被置换动过的桶</div></div>
+</div>
+
+<% if (allPass) { %>
+  <div class="flash ok">✓ 三类桶数勾稽一致：在保 <%= summary.qty %> = 直接在保 <%= summary.directQty %> + 置换占用 <%= summary.occupiedQty %>；与押金台账滚存逐分不差。</div>
+<% } else { %>
+  <div class="flash err">✗ 对账不平，以下勾稽项对不上（算错账，立即排查）：
+    <ul class="plain">
+      <% checks.filter(c => !c.pass).forEach(c => { %>
+        <li><%= c.name %>：左 <%= c.unit === 'fen' ? '¥'+yuan(c.left) : c.left %> ≠ 右 <%= c.unit === 'fen' ? '¥'+yuan(c.right) : c.right %></li>
+      <% }) %>
+    </ul>
+  </div>
+<% } %>
+
+<div class="card">
+  <h2>押金往来明细（按时间，收 / 退 / 置换 / 抵扣一笔不落）</h2>
+  <table>
+    <tr>
+      <th>时间</th><th>项目</th><th>单据</th><th class="num">桶数</th><th class="num">单桶标准</th><th class="num">金额</th>
+      <th>说明 / 溯源</th>
+      <th class="num">在保结存</th><th class="num">置换占用结存</th><th class="num">押金余额结存</th>
+    </tr>
+    <% events.forEach(ev => { %>
+      <tr>
+        <td class="mono"><%= ev.occurredAt %></td>
+        <% if (ev.kind === 'collect') { %>
+          <td><span class="badge collect">收押金</span></td>
+          <td class="mono"><%= ev.refNo || '—' %></td>
+          <td class="num" style="color:var(--green)">+<%= ev.qty %></td>
+          <td class="num">¥<%= yuan(ev.unitAmount) %></td>
+          <td class="num" style="color:var(--green)">+¥<%= yuan(ev.amount) %></td>
+          <td class="alloc">
+            <%= ev.sourceType === 'migration' ? '历史补录（老收据入账）' : '送达回执新收押金' %>
+            <% if (ev.orderId) { %><div><a href="/orders/<%= ev.orderId %>">订单 #<%= ev.orderId %></a></div><% } %>
+            <% if (ev.remark) { %><div><%= ev.remark %></div><% } %>
+          </td>
+        <% } else if (ev.kind === 'refund') { %>
+          <td><span class="badge refund">退押金</span></td>
+          <td class="mono"><%= ev.refNo || '—' %></td>
+          <td class="num" style="color:var(--red)">−<%= ev.qty %></td>
+          <td class="num">¥<%= yuan(ev.unitAmount) %></td>
+          <td class="num" style="color:var(--red)">−¥<%= yuan(ev.amount) %></td>
+          <td class="alloc">
+            <% ev.allocations.forEach(a => { %>
+              <div>退 <b><%= a.qty %></b> 桶 ← <%= a.collect_at.slice(0,10) %> 收据「<%= a.collect_ref_no || '无号' %>」@¥<%= yuan(a.unit_amount) %>/桶<% if (a.via_offset_id) { %>（经 <%= (a.via_at || '').slice(0,10) %> 担保置换退出<% if (a.via_receipt_no) { %>，置换回执 <%= a.via_receipt_no %><% } %>）<% } %></div>
+            <% }) %>
+            <% if (ev.remark) { %><div><%= ev.remark %></div><% } %>
+          </td>
+        <% } else if (ev.kind === 'offset') { %>
+          <td><span class="badge offset">担保置换</span></td>
+          <td class="mono"><%= ev.receiptNo %></td>
+          <td class="num">占用 <%= ev.qty %></td>
+          <td class="num">—</td>
+          <td class="num">¥0.00</td>
+          <td class="alloc">
+            旧桶押金转保本次新桶，不退钱。担保来自：
+            <% ev.allocations.forEach(a => { %>
+              <div><b><%= a.qty %></b> 桶 ← <%= a.collect_at.slice(0,10) %> 收据「<%= a.collect_ref_no || '无号' %>」@¥<%= yuan(a.unit_amount) %>/桶<% if (a.source_type==='migration') { %>（历史补底）<% } %></div>
+            <% }) %>
+            <div><a href="/orders/<%= ev.orderId %>">订单 #<%= ev.orderId %></a></div>
+          </td>
+        <% } else { %>
+          <td><span class="badge empty">空桶抵扣</span></td>
+          <td class="mono"><%= ev.receiptNo %></td>
+          <td class="num">抵 <%= ev.qty %></td>
+          <td class="num">—</td>
+          <td class="num">¥0.00</td>
+          <td class="alloc">当场交回空桶 <%= ev.qty %> 个，抵本次新桶押金，未收押金（<a href="/orders/<%= ev.orderId %>">订单 #<%= ev.orderId %></a>）</td>
+        <% } %>
+        <td class="num"><b><%= ev.runQty %></b></td>
+        <td class="num"><%= ev.runOccupied %></td>
+        <td class="num">¥<%= yuan(ev.runAmount) %></td>
+      </tr>
+    <% }) %>
+    <% if (!events.length) { %><tr><td colspan="10" class="muted">该客户暂无押金往来</td></tr><% } %>
+    <tr class="stmt-total">
+      <td colspan="7"><b>当前合计</b>（截至 <%= generatedAt %>）</td>
+      <td class="num"><b><%= summary.qty %> 桶</b></td>
+      <td class="num"><b><%= summary.occupiedQty %> 桶</b></td>
+      <td class="num"><b>¥<%= yuan(summary.amount) %></b></td>
+    </tr>
+  </table>
+  <p class="muted" style="font-size:12px;margin-top:8px">
+    在保桶数 = 直接在保（<%= summary.directQty %>）+ 置换占用中（<%= summary.occupiedQty %>）。
+    「担保置换」不退钱：旧桶的押金担保转到新桶上；被置换占用的桶退桶时，仍按原始收据的标准退钱。
+  </p>
+</div>
+
+<div class="card">
+  <h2>置换占用中（还没退的桶，<%= openOffsets.length %> 笔）</h2>
+  <% if (!openOffsets.length) { %>
+    <p class="muted">没有被置换占用还没退的桶。</p>
+  <% } else { %>
+  <table>
+    <tr><th>置换时间</th><th>回执</th><th class="num">占用桶数</th><th class="num">已退出</th><th class="num">还占着</th><th>担保来源（原始收款）</th></tr>
+    <% openOffsets.forEach(o => { %>
+      <tr>
+        <td class="mono"><%= o.occurred_at %></td>
+        <td class="mono"><%= o.receipt_no %><div class="alloc"><a href="/orders/<%= o.order_id %>">订单 #<%= o.order_id %></a></div></td>
+        <td class="num"><%= o.qty %></td>
+        <td class="num"><%= o.exited_qty %></td>
+        <td class="num"><b><%= o.remaining_qty %></b></td>
+        <td class="alloc">
+          <% o.allocations.forEach(a => { %>
+            <div><%= a.qty %> 桶 ← <%= a.collect_at.slice(0,10) %> 收据「<%= a.collect_ref_no || '无号' %>」@¥<%= yuan(a.unit_amount) %>/桶</div>
+          <% }) %>
+        </td>
+      </tr>
+    <% }) %>
+  </table>
+  <% } %>
+</div>
+<%- include('../partials/footer') %>

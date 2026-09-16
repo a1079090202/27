@@ -7,6 +7,7 @@ const { fenToYuan } = require('./utils/money');
 const customerRoutes = require('./routes/customerRoutes');
 const orderRoutes = require('./routes/orderRoutes');
 const depositRoutes = require('./routes/depositRoutes');
+const statementRoutes = require('./routes/statementRoutes');
 const bucketRoutes = require('./routes/bucketRoutes');
 const reportRoutes = require('./routes/reportRoutes');
 const { BusinessError } = require('./services/errors');
@@ -56,6 +57,7 @@ app.get('/operator', (req, res) => {
 app.use('/customers', customerRoutes);
 app.use('/orders', orderRoutes);
 app.use('/deposits', depositRoutes);
+app.use('/', statementRoutes); // /customers/:id/statement、/statements/monthly
 app.use('/buckets', bucketRoutes);
 app.use('/', reportRoutes);
 

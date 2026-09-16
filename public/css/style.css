@@ -104,3 +104,19 @@ button[type=submit] { margin-top: 10px; }
 .filters > form > div { min-width: 120px; }
 ul.plain { margin: 0; padding-left: 18px; }
 ul.plain li { margin: 2px 0; }
+
+/* 对账单 / 月度结算 */
+.badge.offset { background: #dbeafe; color: #1e40af; }
+.badge.empty { background: #fef3c7; color: #92400e; }
+.stamp { display: inline-block; padding: 2px 12px; border-radius: 4px; font-size: 13px; font-weight: 700; vertical-align: middle; margin-left: 8px; }
+.stamp.sealed { background: #1f2937; color: #f9fafb; border: 1px solid #111827; }
+.stamp.partial { background: var(--amber-bg); color: var(--amber); border: 1px solid #fde68a; }
+.stmt-total td { font-weight: 700; border-top: 2px solid var(--ink); background: var(--gray-bg); }
+
+/* 打印：只留正文，去掉导航与按钮 */
+@media print {
+  .topbar, .noop-bar, .page-head .btn, .page-head form, .page-head div[style] { display: none !important; }
+  body { background: #fff; }
+  .container { max-width: none; margin: 0; padding: 0; }
+  .card { border: none; padding: 0 0 12px; margin-bottom: 8px; }
+}

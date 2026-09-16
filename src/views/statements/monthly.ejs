@@ -1,0 +1,156 @@
+<%
+  const [yy, mm] = view.month.split('-').map(Number);
+  const prevMonth = mm === 1 ? `${yy - 1}-12` : `${yy}-${String(mm - 1).padStart(2, '0')}`;
+  const nextMonth = mm === 12 ? `${yy + 1}-01` : `${yy}-${String(mm + 1).padStart(2, '0')}`;
+%>
+<%- include('../partials/header', { title: '月度结算 ' + view.month }) %>
+<div class="page-head">
+  <h1>月度结算 · <%= view.month %>
+    <% if (view.seal.status === 'sealed') { %><span class="stamp sealed">🔒 已封账</span><% } %>
+    <% if (view.seal.status === 'partial') { %><span class="stamp partial">部分封账</span><% } %>
+  </h1>
+  <div style="display:flex;gap:8px;align-items:center">
+    <a class="btn secondary sm" href="/statements/monthly?month=<%= prevMonth %>">← <%= prevMonth %></a>
+    <form method="get" style="display:flex;gap:6px">
+      <input type="month" name="month" value="<%= view.month %>" style="width:150px">
+      <button class="btn sm">切换</button>
+    </form>
+    <a class="btn secondary sm" href="/statements/monthly?month=<%= nextMonth %>"><%= nextMonth %> →</a>
+  </div>
+</div>
+
+<% if (view.seal.status === 'sealed') { %>
+<div class="card" style="background:#1f2937;color:#f9fafb;border-color:#111827">
+  <h2 style="color:#f9fafb">🔒 该月已整月封死（账已封至 <%= view.seal.latestCloseDate %>，<%= view.seal.closedDays %>/<%= view.daysInMonth %> 天有封账快照）</h2>
+  <p style="margin:0">该月台账已固化，<b>不可补录、不可冲改</b>：回执 / 退桶落入该月会被时间闸当场拒绝，更正只能走当月之后的反向新单。
+    封账后若有补录或冲改，下方「封账快照核对」会点名到具体封账日。</p>
+</div>
+<% } else if (view.seal.status === 'partial') { %>
+<div class="card" style="background:var(--amber-bg);border-color:#fde68a">
+  <h2>◐ 部分封账：<%= view.monthStart %> ～ <%= view.seal.latestCloseDate %> 已封（<%= view.seal.closedDays %> 天），之后未封</h2>
+  <p class="muted" style="margin:0">已封区间补录 / 冲改会被时间闸拒绝；<%= view.seal.latestCloseDate %> 之后的日期仍可正常入账。</p>
+</div>
+<% } else { %>
+<div class="card" style="background:#f0fdf4;border-color:#a7f3d0">
+  <span style="color:#15803d">🔓 该月未封账，可正常入账；封账请在<a href="/daily">日结页</a>逐日封账（全平才能封）。</span>
+</div>
+<% } %>
+
+<div class="grid grid-4">
+  <div class="card kpi cash">
+    <div class="label">当月新收押金</div>
+    <div class="value">¥<%= yuan(view.movement.collected) %></div>
+    <div class="sub"><%= view.movement.collectedQty %> 桶 · <%= view.movement.collectLines %> 笔</div>
+  </div>
+  <div class="card kpi unpaid">
+    <div class="label">当月退还押金</div>
+    <div class="value">¥<%= yuan(view.movement.refunded) %></div>
+    <div class="sub"><%= view.movement.refundedQty %> 桶 · <%= view.movement.refundLines %> 笔</div>
+  </div>
+  <div class="card kpi">
+    <div class="label">当月置换发生额</div>
+    <div class="value"><%= view.offset.qty %> 桶</div>
+    <div class="sub"><%= view.offset.lines %> 笔 · 担保金额 ¥<%= yuan(view.offset.guaranteeAmount) %>（不退钱）</div>
+  </div>
+  <div class="card kpi deposit">
+    <div class="label">月末在保总量（<%= view.monthEnd %>）</div>
+    <div class="value"><%= view.closingActual.qty %> 桶</div>
+    <div class="sub">¥<%= yuan(view.closingActual.amount) %> · 其中置换占用 <%= view.offset.endQty %> 桶</div>
+  </div>
+</div>
+
+<div class="grid grid-2">
+  <div class="card">
+    <h2>押金余额变动（全站）</h2>
+    <table>
+      <tr><th>期初（<%= view.monthStart %> 前）</th><td class="num"><%= view.opening.qty %> 桶</td><td class="num">¥<%= yuan(view.opening.amount) %></td></tr>
+      <tr><th>当月新收</th><td class="num">+<%= view.movement.collectedQty %> 桶</td><td class="num">+¥<%= yuan(view.movement.collected) %></td></tr>
+      <tr><th>当月退还</th><td class="num">−<%= view.movement.refundedQty %> 桶</td><td class="num">−¥<%= yuan(view.movement.refunded) %></td></tr>
+      <tr><th><b>月末在保</b></th><td class="num"><b><%= view.closingActual.qty %> 桶</b></td><td class="num"><b>¥<%= yuan(view.closingActual.amount) %></b></td></tr>
+    </table>
+  </div>
+  <div class="card">
+    <h2>置换占用变动（担保置换，不动钱）</h2>
+    <table>
+      <tr><th>期初置换占用</th><td class="num"><%= view.offset.beginQty %> 桶</td></tr>
+      <tr><th>当月置换占用</th><td class="num">+<%= view.offset.qty %> 桶</td></tr>
+      <tr><th>当月经置换退出（退桶）</th><td class="num">−<%= view.offset.exitedQty %> 桶</td></tr>
+      <tr><th><b>期末置换占用</b></th><td class="num"><b><%= view.offset.endQty %> 桶</b></td></tr>
+    </table>
+    <p class="muted" style="font-size:12px;margin:8px 0 0">期末在保 <%= view.closingActual.qty %> 桶 = 直接在保 <%= view.closingActual.qty - view.offset.endQty %> 桶 + 置换占用 <%= view.offset.endQty %> 桶。</p>
+  </div>
+</div>
+
+<div class="card">
+  <h2>与押金台账逐笔对平（<%= view.checks.length %> 项）</h2>
+  <% if (view.discrepancies.length) { %>
+  <div class="flash err">
+    <b>✗ 对不平，差在以下 <%= view.discrepancies.length %> 笔：</b>
+    <ul class="plain">
+      <% view.discrepancies.forEach(d => { %><li><%= d %></li><% }) %>
+    </ul>
+  </div>
+  <% } %>
+  <table class="checks">
+    <tr><th>核对项</th><th class="num">左值</th><th class="num">右值</th><th>结果</th></tr>
+    <% view.checks.forEach(c => { %>
+      <tr>
+        <td><%= c.name %></td>
+        <td class="num"><%= c.unit === 'fen' ? '¥'+yuan(c.left) : c.left %></td>
+        <td class="num"><%= c.unit === 'fen' ? '¥'+yuan(c.right) : c.right %></td>
+        <td class="<%= c.pass ? 'pass':'fail' %>"><%= c.pass ? '✓ 平' : '✗ 不平' %></td>
+      </tr>
+    <% }) %>
+  </table>
+  <p style="margin-top:8px">
+    <% if (view.allPass) { %><span class="badge ok">当月账务与台账逐笔对平</span>
+    <% } else { %><span class="badge warn">有不平项，按上方点名逐笔核查</span><% } %>
+    <span class="muted" style="font-size:12px;margin-left:8px">月末在保与 <a href="/daily?date=<%= view.monthEnd %>"><%= view.monthEnd %> 日结</a> 同口径。</span>
+  </p>
+</div>
+
+<div class="card">
+  <h2>当月押金台账逐笔（<%= view.lines.length %> 行，对平就对这些行）</h2>
+  <% if (!view.lines.length) { %><p class="muted">当月无押金收退记录。</p><% } else { %>
+  <table>
+    <tr><th>台账#</th><th>时间</th><th>客户</th><th>收/退</th><th class="num">桶数</th><th class="num">单桶标准</th><th class="num">金额</th><th>单号/收据</th><th>操作人</th></tr>
+    <% view.lines.forEach(l => { %>
+      <tr>
+        <td class="mono">#<%= l.id %></td>
+        <td class="mono"><%= l.occurred_at %></td>
+        <td><a href="/customers/<%= l.customer_id %>/statement"><%= l.customer_name %></a> <span class="muted"><%= l.customer_code %></span></td>
+        <td><span class="badge <%= l.direction %>"><%= l.direction === 'collect' ? '收' : '退' %></span></td>
+        <td class="num"><%= l.qty %></td>
+        <td class="num">¥<%= yuan(l.unit_amount) %></td>
+        <td class="num"><%= l.direction === 'collect' ? '+' : '−' %>¥<%= yuan(l.amount) %></td>
+        <td class="mono"><%= l.ref_no || '—' %></td>
+        <td><%= l.created_by %></td>
+      </tr>
+    <% }) %>
+  </table>
+  <% } %>
+</div>
+
+<div class="card">
+  <h2>当月置换逐笔（担保置换 <%= view.offsets.length %> 笔，不退钱、笔笔钉源头）</h2>
+  <% if (!view.offsets.length) { %><p class="muted">当月无置换。</p><% } else { %>
+  <table>
+    <tr><th>置换#</th><th>时间</th><th>客户</th><th>回执</th><th class="num">占用桶数</th><th>担保来自（历史收款）</th></tr>
+    <% view.offsets.forEach(o => { %>
+      <tr>
+        <td class="mono">#<%= o.id %></td>
+        <td class="mono"><%= o.occurred_at %></td>
+        <td><a href="/customers/<%= o.customer_id %>/statement"><%= o.customer_name %></a> <span class="muted"><%= o.customer_code %></span></td>
+        <td class="mono"><%= o.receipt_no %></td>
+        <td class="num"><b><%= o.qty %></b></td>
+        <td class="alloc">
+          <% o.allocations.forEach(a => { %>
+            <div><%= a.qty %> 桶 ← <%= a.collect_at.slice(0,10) %> 收据「<%= a.collect_ref_no || '无号' %>」@¥<%= yuan(a.unit_amount) %>/桶</div>
+          <% }) %>
+        </td>
+      </tr>
+    <% }) %>
+  </table>
+  <% } %>
+</div>
+<%- include('../partials/footer') %>

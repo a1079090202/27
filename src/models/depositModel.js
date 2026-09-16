@@ -230,7 +230,7 @@ const depositModel = {
     return getDb().prepare(`
       SELECT a.qty, a.via_offset_id, l.ref_no AS collect_ref_no, l.occurred_at AS collect_at,
              l.unit_amount, l.id AS collect_ledger_id, l.source_type,
-             rc.receipt_no AS via_receipt_no
+             rc.receipt_no AS via_receipt_no, fo.occurred_at AS via_at
       FROM deposit_refund_alloc a
       JOIN deposit_ledger l ON l.id = a.collect_ledger_id
       LEFT JOIN deposit_offset fo ON fo.id = a.via_offset_id
